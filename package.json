@@ -1,0 +1,12 @@
+{
+  "name": "focus-himd",
+  "version": "1.0.0",
+  "description": "Focus Himd - Self-development tracker with Pomodoro timer and mood journaling",
+  "scripts": {
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start"
+  }
+}

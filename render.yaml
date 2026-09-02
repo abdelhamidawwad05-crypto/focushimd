@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: focushimd-api
+    env: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
