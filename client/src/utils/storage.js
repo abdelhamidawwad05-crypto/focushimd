@@ -10,6 +10,7 @@ export async function saveSession({ duration, mood, note }) {
   try {
     const res = await fetch(apiUrl('/api/sessions'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ duration, mood, note })
     });
@@ -38,7 +39,7 @@ export async function getSessions(filter) {
       const from = new Date(); from.setMonth(from.getMonth() - 1);
       url += `?from=${from.toISOString()}`;
     }
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: 'include' });
     if (!res.ok) throw new Error('backend error');
     const data = await res.json();
     if (filter === 'all' || !filter) lsSave(data);
@@ -60,7 +61,7 @@ export async function getSessions(filter) {
 
 export async function getTodayCount() {
   try {
-    const res = await fetch(apiUrl('/api/sessions/today'));
+    const res = await fetch(apiUrl('/api/sessions/today'), { credentials: 'include' });
     if (!res.ok) throw new Error();
     const data = await res.json();
     return data.length;
@@ -76,7 +77,7 @@ export async function getTodayCount() {
 
 export async function getStats() {
   try {
-    const res = await fetch(apiUrl('/api/sessions/stats'));
+    const res = await fetch(apiUrl('/api/sessions/stats'), { credentials: 'include' });
     if (!res.ok) throw new Error();
     return await res.json();
   } catch {
@@ -98,7 +99,7 @@ export async function getStats() {
 
 export async function getWeekly() {
   try {
-    const res = await fetch(apiUrl('/api/sessions/weekly'));
+    const res = await fetch(apiUrl('/api/sessions/weekly'), { credentials: 'include' });
     if (!res.ok) throw new Error();
     return await res.json();
   } catch {

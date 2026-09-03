@@ -1,46 +1,80 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import api from '../api/axios';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { authApi } from '../api/auth';
+
+// ---------------------------------------------------------------------------
+// Auth state lives here so every page shares one session. On mount (and
+// therefore on every page reload) we ask the backend GET /api/auth/me — the
+// httpOnly session cookie is sent automatically, so a valid session restores
+// the user without any token in localStorage. Only the pending (unverified)
+// email is kept in sessionStorage so /verify survives a reload.
+// ---------------------------------------------------------------------------
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pendingEmail, setPendingEmail] = useState(
+    () => sessionStorage.getItem('fh_pending_email') || ''
+  );
+
+  const savePendingEmail = (email) => {
+    setPendingEmail(email || '');
+    if (email) sessionStorage.setItem('fh_pending_email', email);
+    else sessionStorage.removeItem('fh_pending_email');
+  };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      const stored = localStorage.getItem('user');
-      if (stored) setUser(JSON.parse(stored));
-    }
-    setLoading(false);
+    authApi.me()
+      .then((d) => { if (d.user) setUser(d.user); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email, password) => {
-    const res = await api.post('/auth/login', { email, password });
-    localStorage.setItem('token', res.data.token);
-    localStorage.setItem('user', JSON.stringify(res.data.user));
-    setUser(res.data.user);
-  };
+  const signup = useCallback(async (email, password) => {
+    const data = await authApi.signup(email, password);
+    savePendingEmail(data.user.email);
+    return data;
+  }, []);
 
-  const register = async (name, email, password) => {
-    const res = await api.post('/auth/register', { name, email, password });
-    localStorage.setItem('token', res.data.token);
-    localStorage.setItem('user', JSON.stringify(res.data.user));
-    setUser(res.data.user);
-  };
+  const login = useCallback(async (email, password) => {
+    const data = await authApi.login(email, password);
+    if (data.needsVerification) {
+      savePendingEmail(data.user.email);
+      const err = new Error(data.message || 'Please verify your email first');
+      err.needsVerification = true;
+      err.user = data.user;
+      throw err;
+    }
+    savePendingEmail('');
+    setUser(data.user);
+    return data;
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const verify = useCallback(async (email, code) => {
+    const data = await authApi.verify(email, code);
+    savePendingEmail('');
+    setUser(data.user);
+    return data;
+  }, []);
+
+  const resend = useCallback((email) => authApi.resend(email), []);
+
+  const logout = useCallback(async () => {
+    try { await authApi.logout(); } catch (e) {}
+    savePendingEmail('');
     setUser(null);
-  };
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, pendingEmail, setPendingEmail: savePendingEmail, signup, login, verify, resend, logout }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
+  return ctx;
+};
