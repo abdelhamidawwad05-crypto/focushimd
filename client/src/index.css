@@ -475,6 +475,7 @@ body {
   align-items: center;
   gap: 8px;
   font-family: inherit;
+  position: relative;
 }
 
 .mood-btn:hover {
@@ -483,12 +484,24 @@ body {
 }
 
 .mood-btn.selected {
-  border-color: var(--primary);
-  background: var(--primary-dim);
-  box-shadow: 0 0 20px var(--primary-dim);
+  border-color: var(--mood-color);
+  background: rgba(0,0,0,0);
+  box-shadow: 0 0 20px var(--mood-color);
 }
 
-.mood-emoji { font-size: 28px; }
+.mood-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--mood-color);
+  opacity: 0.9;
+  transition: var(--transition);
+}
+.mood-btn.selected .mood-dot {
+  opacity: 1;
+  transform: scale(1.15);
+  box-shadow: 0 0 20px var(--mood-color);
+}
 
 .mood-text {
   font-size: 12px;
@@ -607,6 +620,18 @@ body {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+}
+
+.repo-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.repo-meta-item svg {
+  flex-shrink: 0;
 }
 
 /* ── History Page ── */
@@ -759,6 +784,20 @@ body {
   opacity: 0.9;
 }
 
+.sample-card .card-icon .icon-svg {
+  width: 22px; height: 22px;
+  color: var(--primary);
+}
+.sample-card .card-icon .icon-svg path,
+.sample-card .card-icon .icon-svg circle,
+.sample-card .card-icon .icon-svg line,
+.sample-card .card-icon .icon-svg polyline,
+.sample-card .card-icon .icon-svg rect {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+
 .sample-card .card-icon .icon-timer,
 .sample-card .card-icon .icon-cal {
   width: 22px; height: 22px;
@@ -893,26 +932,7 @@ body {
   50% { transform: translate(-50%, 15px) scale(1.02); }
 }
 
-.floating-elements {
-  position: absolute;
-  inset: 0;
-}
-
-.float-item {
-  position: absolute;
-  font-size: 24px;
-  opacity: 0.14;
-  filter: drop-shadow(0 0 6px rgba(74,222,128,0.15));
-  will-change: transform;
-}
-
-.f1 { top: 14%; left: 6%; animation: drift 9s ease-in-out infinite; }
-.f2 { top: 28%; right: 8%; animation: drift 11s ease-in-out infinite 1.5s; }
-.f3 { top: 62%; left: 10%; animation: drift 10s ease-in-out infinite 0.8s; }
-.f4 { top: 18%; right: 20%; animation: drift 12s ease-in-out infinite 2.2s; }
-.f5 { bottom: 24%; right: 12%; animation: drift 9.5s ease-in-out infinite 0.3s; }
-.f6 { bottom: 16%; left: 14%; animation: drift 13s ease-in-out infinite 1.2s; }
-.f7 { top: 45%; left: 4%; animation: drift 10.5s ease-in-out infinite 2.8s; }
+/* ── Animated Background ── */
 .f8 { top: 52%; right: 6%; animation: drift 11.5s ease-in-out infinite 3.5s; }
 .f9 { bottom: 40%; left: 22%; animation: drift 9.8s ease-in-out infinite 0.6s; }
 .f10 { top: 8%; left: 38%; animation: drift 12.5s ease-in-out infinite 4s; }

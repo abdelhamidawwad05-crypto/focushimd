@@ -13,8 +13,7 @@ const History = () => {
   const formatDate = (d) =>
     new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 
-  const moodEmoji = { good:'😊', okay:'😐', rough:'😔' };
-  const moodColor = { good:'var(--color-good)', okay:'var(--color-okay)', rough:'var(--color-rough)' };
+  const moodColor = { good: 'var(--color-good)', okay: 'var(--color-okay)', rough: 'var(--color-rough)' };
 
   const grouped = sessions.reduce((acc, s) => {
     const date = new Date(s.completedAt).toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
@@ -42,7 +41,7 @@ const History = () => {
               <h3>{date}</h3>
               {daySessions.map(s => (
                 <div key={s.id} className="session-card">
-                  <div className="session-mood" style={{background:moodColor[s.mood]}}>{moodEmoji[s.mood]}</div>
+                  <div className="session-mood" style={{background:moodColor[s.mood]}} />
                   <div className="session-info">
                     <span className="session-time">{formatDate(s.completedAt)}</span>
                     <span className="session-duration-text">{s.duration} min focused</span>

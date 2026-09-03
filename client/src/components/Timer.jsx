@@ -44,43 +44,18 @@ const Timer = ({ onSessionComplete }) => {
     return () => clearInterval(intervalRef.current);
   }, [isRunning, isPaused, isBreak]);
 
-  const handleStart = () => {
-    playStart();
-    setIsRunning(true);
-    setIsPaused(false);
-  };
-
-  const handlePause = () => {
-    playPause();
-    setIsPaused(true);
-    setIsRunning(false);
-  };
-
-  const handleResume = () => {
-    playStart();
-    setIsPaused(false);
-    setIsRunning(true);
-  };
-
+  const handleStart = () => { playStart(); setIsRunning(true); setIsPaused(false); };
+  const handlePause = () => { playPause(); setIsPaused(true); setIsRunning(false); };
+  const handleResume = () => { playStart(); setIsPaused(false); setIsRunning(true); };
   const handleStop = () => {
-    playStop();
-    setIsRunning(false);
-    setIsPaused(false);
+    playStop(); setIsRunning(false); setIsPaused(false);
     if (!isBreak && timeLeft < 25 * 60) {
       const elapsed = Math.floor((25 * 60 - timeLeft) / 60);
       if (elapsed > 0) onSessionComplete(elapsed);
     }
-    setTimeLeft(isBreak ? 5 * 60 : 25 * 60);
-    setIsBreak(false);
+    setTimeLeft(isBreak ? 5 * 60 : 25 * 60); setIsBreak(false);
   };
-
-  const handleEnd = () => {
-    playStop();
-    setIsRunning(false);
-    setIsPaused(false);
-    setTimeLeft(isBreak ? 5 * 60 : 25 * 60);
-    setIsBreak(false);
-  };
+  const handleEnd = () => { playStop(); setIsRunning(false); setIsPaused(false); setTimeLeft(isBreak ? 5 * 60 : 25 * 60); setIsBreak(false); };
 
   const totalTime = isBreak ? 5 * 60 : 25 * 60;
   const progress = ((totalTime - timeLeft) / totalTime) * 100;
@@ -89,7 +64,6 @@ const Timer = ({ onSessionComplete }) => {
 
   let label = isBreak ? 'Break Time' : 'Focus Session';
   if (isPaused) label = 'Paused';
-  else if (isBreak && isRunning) label = 'Break Time';
 
   return (
     <div className={`timer-card ${isRunning ? 'running' : ''} ${isPaused ? 'paused' : ''}`}>
@@ -97,47 +71,26 @@ const Timer = ({ onSessionComplete }) => {
       <div className="timer-circle">
         <svg width="240" height="240" viewBox="0 0 240 240">
           <circle className="track" cx="120" cy="120" r="110" fill="none" strokeWidth="5" />
-          <circle
-            className="progress"
-            cx="120" cy="120" r="110"
-            fill="none"
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            transform="rotate(-90 120 120)"
-          />
+          <circle className="progress" cx="120" cy="120" r="110" fill="none" strokeWidth="5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 120 120)" />
         </svg>
         <div className="timer-display">{formatTime(timeLeft)}</div>
-        {isPaused && <div className="pause-indicator">⏸</div>}
+        {isPaused && <div className="pause-indicator">II</div>}
       </div>
       <div className="timer-controls">
         {!isRunning && !isPaused ? (
           <>
-            <button onClick={handleStart} className="btn btn-start">
-              ▶ Start
-            </button>
-            <button onClick={handleEnd} className="btn btn-end">
-              ⏹ End
-            </button>
+            <button onClick={handleStart} className="btn btn-start">Start</button>
+            <button onClick={handleEnd} className="btn btn-end">End</button>
           </>
         ) : isPaused ? (
           <>
-            <button onClick={handleResume} className="btn btn-start">
-              ▶ Resume
-            </button>
-            <button onClick={handleStop} className="btn btn-stop">
-              ⏹ Stop
-            </button>
+            <button onClick={handleResume} className="btn btn-start">Resume</button>
+            <button onClick={handleStop} className="btn btn-stop">Stop</button>
           </>
         ) : (
           <>
-            <button onClick={handlePause} className="btn btn-pause">
-              ⏸ Pause
-            </button>
-            <button onClick={handleStop} className="btn btn-stop">
-              ⏹ Stop
-            </button>
+            <button onClick={handlePause} className="btn btn-pause">Pause</button>
+            <button onClick={handleStop} className="btn btn-stop">Stop</button>
           </>
         )}
       </div>
