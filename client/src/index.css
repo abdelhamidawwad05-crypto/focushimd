@@ -893,7 +893,7 @@ body {
 .orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, #4ade80 0%, transparent 70%);
+  background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
   top: -150px;
   left: -100px;
   animation: orbFloat1 20s ease-in-out infinite;
@@ -902,7 +902,7 @@ body {
 .orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #22c55e 0%, transparent 70%);
+  background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
   bottom: -100px;
   right: -80px;
   animation: orbFloat2 25s ease-in-out infinite;
@@ -911,7 +911,7 @@ body {
 .orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #4ade80 0%, transparent 70%);
+  background: radial-gradient(circle, var(--primary-dim) 0%, transparent 70%);
   top: 40%;
   left: 50%;
   animation: orbFloat3 30s ease-in-out infinite;
