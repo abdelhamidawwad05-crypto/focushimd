@@ -932,6 +932,41 @@ body {
   50% { transform: translate(-50%, 15px) scale(1.02); }
 }
 
+/* ── Animated Background ── */
+.f8 { top: 52%; right: 6%; animation: drift 11.5s ease-in-out infinite 3.5s; }
+.f9 { bottom: 40%; left: 22%; animation: drift 9.8s ease-in-out infinite 0.6s; }
+.f10 { top: 8%; left: 38%; animation: drift 12.5s ease-in-out infinite 4s; }
+
+@keyframes drift {
+  0% { transform: translate(0, 0) rotate(-3deg) scale(1); }
+  25% { transform: translate(12px, -14px) rotate(2deg) scale(1.05); }
+  50% { transform: translate(-8px, -22px) rotate(3deg) scale(1); }
+  75% { transform: translate(-14px, -10px) rotate(-2deg) scale(0.95); }
+  100% { transform: translate(0, 0) rotate(-3deg) scale(1); }
+}
+
+.study-scene {
+  position: absolute;
+  bottom: 24px;
+  right: 32px;
+  opacity: 0.5;
+  animation: sceneFloat 12s ease-in-out infinite;
+}
+
+.study-scene svg { filter: drop-shadow(0 4px 20px rgba(74,222,128,0.08)); }
+
+.lamp-glow { animation: lampPulse 4s ease-in-out infinite; }
+
+@keyframes sceneFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes lampPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* ── Pause ── */
 .btn-pause {
   background: var(--glass);
