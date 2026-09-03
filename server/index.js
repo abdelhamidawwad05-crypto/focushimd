@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const sessionRoutes = require('./routes/sessions');
@@ -22,7 +23,15 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.use('/api/sessions', sessionRoutes);
+const sessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { message: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.use('/api/sessions', sessionLimiter, sessionRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Focus Himd API is running', db: db.type || 'sqlite', status: 'ok' });
