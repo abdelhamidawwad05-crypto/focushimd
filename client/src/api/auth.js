@@ -21,19 +21,35 @@ async function ensureCsrf() {
 
 async function post(path, body) {
   const token = await ensureCsrf();
-  const res = await fetch(apiUrl(path), {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
-    body: JSON.stringify(body || {})
-  });
+  let res;
+  try {
+    res = await fetch(apiUrl(path), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+      body: JSON.stringify(body || {})
+    });
+  } catch (e) {
+    if (e instanceof TypeError && e.message === 'Failed to fetch') {
+      throw new Error('Cannot reach the server. Please check your connection or try again later.');
+    }
+    throw e;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || 'Request failed');
   return data;
 }
 
 async function get(path) {
-  const res = await fetch(apiUrl(path), { credentials: 'include' });
+  let res;
+  try {
+    res = await fetch(apiUrl(path), { credentials: 'include' });
+  } catch (e) {
+    if (e instanceof TypeError && e.message === 'Failed to fetch') {
+      throw new Error('Cannot reach the server. Please check your connection or try again later.');
+    }
+    throw e;
+  }
   if (res.status === 401) return { user: null };
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || 'Request failed');
