@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import Timer from '../components/Timer';
 import MoodPopup from '../components/MoodPopup';
-import playClick from '../utils/sounds';
+import playClick, { playAlarm } from '../utils/sounds';
 import { saveSession, getTodayCount, getStats } from '../utils/storage';
+import { useTimer } from '../context/TimerContext';
 
 const Home = () => {
   const [todayCount, setTodayCount] = useState(0);
   const [streak, setStreak] = useState(0);
   const [completedDuration, setCompletedDuration] = useState(null);
   const [showMoodPopup, setShowMoodPopup] = useState(false);
+  const { completedDuration: timerDone, taskLabel, ackSession } = useTimer();
 
   const refresh = async () => {
     const [count, stats] = await Promise.all([getTodayCount(), getStats()]);
@@ -18,15 +20,22 @@ const Home = () => {
 
   useEffect(() => { refresh(); }, []);
 
-  const handleSessionComplete = (duration) => {
-    setCompletedDuration(duration);
-    setShowMoodPopup(true);
-  };
+  // When the timer naturally finishes, surface the completed session + end sound.
+  useEffect(() => {
+    if (timerDone != null) {
+      playAlarm();
+      setCompletedDuration(timerDone);
+      setShowMoodPopup(true);
+    }
+  }, [timerDone]);
 
   const handleMoodSave = async ({ duration, mood, note }) => {
-    await saveSession({ duration, mood, note });
+    // The optional task label is saved together with the session.
+    const combinedNote = [taskLabel, note].filter(Boolean).join(' — ');
+    await saveSession({ duration, mood, note: combinedNote });
     setShowMoodPopup(false);
     setCompletedDuration(null);
+    ackSession();
     refresh();
   };
 
@@ -40,7 +49,7 @@ const Home = () => {
       </div>
 
       <div className="home-layout">
-        <Timer onSessionComplete={handleSessionComplete} />
+        <Timer />
 
         <div className="stats-sidebar">
           <div className="stat-card">
@@ -60,7 +69,7 @@ const Home = () => {
         <MoodPopup
           duration={completedDuration}
           onSave={handleMoodSave}
-          onClose={() => { playClick(); setShowMoodPopup(false); setCompletedDuration(null); }}
+          onClose={() => { playClick(); setShowMoodPopup(false); setCompletedDuration(null); ackSession(); }}
         />
       )}
     </div>

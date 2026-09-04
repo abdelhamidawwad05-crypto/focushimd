@@ -23,7 +23,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Rubik', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.35;
@@ -323,6 +323,78 @@ body {
   max-width: 300px;
   position: relative;
   z-index: 1;
+}
+
+/* ── Timer presets (25 / 50 min) ── */
+.timer-presets {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.preset-btn {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  padding: 7px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.preset-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.preset-btn.active {
+  background: var(--primary);
+  color: #000;
+  border-color: var(--primary);
+  box-shadow: 0 0 16px var(--primary-dim);
+}
+
+/* ── Do Not Disturb note (shown while running) ── */
+.timer-dnd {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timer-dnd::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary);
+}
+
+/* ── Task label input (below the timer card) ── */
+.timer-task {
+  margin-top: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.timer-task .task-input {
+  background: var(--glass);
+  border-color: var(--glass-border);
+}
+
+.timer-task .task-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 16px var(--primary-dim);
 }
 
 /* ── Stats Sidebar ── */
@@ -746,6 +818,12 @@ body {
 .session-duration-text {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.session-mood-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary);
 }
 
 .session-note {

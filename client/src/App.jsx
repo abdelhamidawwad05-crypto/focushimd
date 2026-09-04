@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { TimerProvider } from './context/TimerContext';
 import Navbar from './components/Navbar';
 import MouseGlow from './components/MouseGlow';
 import AnimatedBackground from './components/AnimatedBackground';
+import { ProtectedRoute, GuestRoute } from './components/ProtectedRoute';
 import Home from './pages/Home';
 import History from './pages/History';
 import Stats from './pages/Stats';
@@ -16,25 +18,27 @@ import './index.css';
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AnimatedBackground />
-        <MouseGlow />
-        <div className="app">
-          <Navbar />
-          <main className="main-content">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/history" element={<History />} />
-              <Route path="/stats" element={<Stats />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/verify" element={<Verify />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-            </Routes>
-          </main>
-        </div>
-      </BrowserRouter>
+      <TimerProvider>
+        <BrowserRouter>
+          <AnimatedBackground />
+          <MouseGlow />
+          <div className="app">
+            <Navbar />
+            <main className="main-content">
+              <Routes>
+                <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+                <Route path="/stats" element={<ProtectedRoute><Stats /></ProtectedRoute>} />
+                <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
+                <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
+                <Route path="/signup" element={<GuestRoute><Signup /></GuestRoute>} />
+                <Route path="/verify" element={<GuestRoute><Verify /></GuestRoute>} />
+                <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
+              </Routes>
+            </main>
+          </div>
+        </BrowserRouter>
+      </TimerProvider>
     </AuthProvider>
   );
 }

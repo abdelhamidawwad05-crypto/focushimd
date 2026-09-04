@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import playClick from '../utils/sounds';
 
@@ -16,6 +16,7 @@ function EyeIcon({ open }) {
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -32,7 +33,8 @@ const Login = () => {
     playClick();
     try {
       await login(cleanEmail, password);
-      navigate('/');
+      const dest = location.state?.from || '/';
+      navigate(dest, { replace: true });
     } catch (err) {
       if (err.needsVerification) navigate('/verify');
       else setError(err.message || 'Something went wrong, please try again');
