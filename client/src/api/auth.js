@@ -5,14 +5,24 @@
 // (double-submit CSRF). No JWT is ever stored in localStorage.
 // ---------------------------------------------------------------------------
 
-const API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const API = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 const apiUrl = (path) => `${API}${path}`;
+
+function networkError(e) {
+  if (e instanceof TypeError && /Failed to fetch|NetworkError|Load failed|AbortError/i.test(e.message)) {
+    return new Error('Cannot reach the server. Please check your connection or try again later.');
+  }
+  return e;
+}
 
 let csrfToken = null;
 
 async function ensureCsrf() {
   if (csrfToken) return csrfToken;
-  const res = await fetch(apiUrl('/api/auth/csrf-token'), { credentials: 'include' });
+  let res;
+  try {
+    res = await fetch(apiUrl('/api/auth/csrf-token'), { credentials: 'include' });
+  } catch (e) { throw networkError(e); }
   if (!res.ok) throw new Error('Could not start a secure session');
   const data = await res.json();
   csrfToken = data.csrfToken;
@@ -29,12 +39,7 @@ async function post(path, body) {
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
       body: JSON.stringify(body || {})
     });
-  } catch (e) {
-    if (e instanceof TypeError && e.message === 'Failed to fetch') {
-      throw new Error('Cannot reach the server. Please check your connection or try again later.');
-    }
-    throw e;
-  }
+  } catch (e) { throw networkError(e); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || 'Request failed');
   return data;
@@ -44,12 +49,7 @@ async function get(path) {
   let res;
   try {
     res = await fetch(apiUrl(path), { credentials: 'include' });
-  } catch (e) {
-    if (e instanceof TypeError && e.message === 'Failed to fetch') {
-      throw new Error('Cannot reach the server. Please check your connection or try again later.');
-    }
-    throw e;
-  }
+  } catch (e) { throw networkError(e); }
   if (res.status === 401) return { user: null };
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || 'Request failed');
