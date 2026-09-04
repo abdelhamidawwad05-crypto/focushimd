@@ -54,6 +54,16 @@ const sessionLimiter = rateLimit({
 app.use('/api/sessions', sessionLimiter, sessionRoutes);
 app.use('/api/auth', authRoutes);
 
+// Error handler: ensure all API errors return JSON, never HTML
+app.use((err, req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    console.error('[api error]', err?.message || err);
+    const status = err?.status || err?.statusCode || 500;
+    return res.status(status).json({ message: err?.message || 'Server error' });
+  }
+  next(err);
+});
+
 app.get('/', (req, res) => {
   res.json({ message: 'Focus Himd API is running', db: db.type || 'sqlite', status: 'ok' });
 });
