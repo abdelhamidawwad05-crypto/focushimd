@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import CodeInput from '../components/CodeInput';
 import playClick from '../utils/sounds';
 
 // ---------------------------------------------------------------------------
-// Step 2 of 2: 6-box verification code. Boxes auto-advance, backspace moves
-// back, full-code paste is supported. Resend has a 33s client countdown that
-// mirrors the server's 30s anti-spam cooldown.
+// Step 2 of 2 (standalone): reached after signup, or after a login attempt
+// on an account whose email is not verified yet. Same 6-box input component
+// as the signup page, same /api/auth/verify endpoint, same session cookie.
 // ---------------------------------------------------------------------------
 
 const RESEND_WAIT = 33;
@@ -14,11 +15,10 @@ const RESEND_WAIT = 33;
 const Verify = () => {
   const { pendingEmail, setPendingEmail, verify, resend } = useAuth();
   const navigate = useNavigate();
-  const [digits, setDigits] = useState(['', '', '', '', '', '']);
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(RESEND_WAIT);
-  const inputs = useRef([]);
 
   useEffect(() => {
     if (!pendingEmail) navigate('/register');
@@ -30,36 +30,9 @@ const Verify = () => {
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  useEffect(() => { inputs.current[0] && inputs.current[0].focus(); }, []);
-
-  const setDigit = (i, v) => {
-    setDigits((d) => { const n = [...d]; n[i] = v; return n; });
-  };
-
-  const handleChange = (i, e) => {
-    const v = e.target.value.replace(/\D/g, '').slice(-1);
-    setDigit(i, v);
-    if (v && i < 5) inputs.current[i + 1].focus();
-  };
-
-  const handleKeyDown = (i, e) => {
-    if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i - 1].focus();
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const text = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
-    if (!text) return;
-    const n = ['', '', '', '', '', ''];
-    for (let i = 0; i < text.length; i++) n[i] = text[i];
-    setDigits(n);
-    inputs.current[Math.min(text.length, 5)].focus();
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const code = digits.join('');
     if (!/^\d{6}$/.test(code)) { setError('Enter the 6-digit code'); return; }
     setLoading(true);
     playClick();
@@ -111,16 +84,7 @@ const Verify = () => {
             <label className="fh-label">Enter verification code</label>
             <span className="fh-paste-hint">Paste supported</span>
           </div>
-          <div className="fh-code-row" onPaste={handlePaste}>
-            {digits.map((d, i) => (
-              <input key={i} ref={(el) => (inputs.current[i] = el)}
-                className="fh-code-box" inputMode="numeric" autoComplete="one-time-code"
-                maxLength={1} value={d} disabled={loading}
-                placeholder="•" aria-label={`Digit ${i + 1}`}
-                onChange={(e) => handleChange(i, e)}
-                onKeyDown={(e) => handleKeyDown(i, e)} />
-            ))}
-          </div>
+          <CodeInput value={code} onChange={setCode} disabled={loading} />
 
           <button type="submit" className="fh-submit" disabled={loading}>
             <span>{loading ? 'Verifying…' : 'Verify & Continue'}</span>

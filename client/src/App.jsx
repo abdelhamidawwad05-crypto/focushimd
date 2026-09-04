@@ -8,6 +8,7 @@ import History from './pages/History';
 import Stats from './pages/Stats';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Signup from './pages/Signup';
 import Verify from './pages/Verify';
 import ForgotPassword from './pages/ForgotPassword';
 import './index.css';
@@ -25,9 +26,10 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/history" element={<History />} />
               <Route path="/stats" element={<Stats />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/verify" element={<Verify />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/verify" element={<Verify />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
             </Routes>
           </main>

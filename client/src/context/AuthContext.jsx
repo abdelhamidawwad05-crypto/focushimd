@@ -31,8 +31,8 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoading(false));
   }, []);
 
-  const signup = useCallback(async (email, password) => {
-    const data = await authApi.signup(email, password);
+  const signup = useCallback(async (email, password, confirmPassword) => {
+    const data = await authApi.signup(email, password, confirmPassword);
     savePendingEmail(data.user.email);
     return data;
   }, []);

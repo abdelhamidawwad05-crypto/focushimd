@@ -1,107 +1,85 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import playClick from '../utils/sounds';
+
+// ---------------------------------------------------------------------------
+// Reset password page. Uses the exact same background stack as every other
+// page (body + site-wide AnimatedBackground + MouseGlow in App.jsx) — no
+// page-local background layers, so there are no seams or boxed artifacts.
+// ---------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!email) {
-      setError('Please enter your email');
+    if (!EMAIL_RE.test(email.trim().toLowerCase())) {
+      setError('Enter a valid email address');
       return;
     }
     setLoading(true);
     playClick();
-    // TODO: Implement actual password reset API call
-    await new Promise(r => setTimeout(r, 1500));
+    // TODO: wire to POST /api/auth/forgot-password once email sending exists
+    await new Promise((r) => setTimeout(r, 1200));
     setLoading(false);
     setSuccess(true);
   };
 
-  if (success) {
-    return (
-      <div className="auth-page">
-        <div className="auth-card">
-          <div className="auth-logo">
-            <div className="auth-logo-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-            </div>
-            <span>Focus Himd</span>
-          </div>
-
-          <div className="auth-header">
-            <h1>Check your email</h1>
-            <p>We've sent a password reset link to <strong>{email}</strong></p>
-          </div>
-
-          <div className="auth-success">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-              <polyline points="22 4 12 14.01 9 11.01"></polyline>
-            </svg>
-            <p>If an account exists, you'll receive a reset link shortly.</p>
-          </div>
-
-          <div className="auth-links">
-            <Link to="/login" onClick={playClick}>Back to login</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">
-          <div className="auth-logo-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
+    <div className="fh-auth-wrap">
+      <div className="fh-auth-top">
+        <h1>Welcome to Focus Himd</h1>
+        <p>Reclaim your attention and peak flow.</p>
+      </div>
+
+      <div className="fh-card">
+        {success ? (
+          <div className="fh-center">
+            <div className="fh-check">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <h1 className="fh-verify-title">Check your email</h1>
+            <p className="fh-verify-sub">
+              If an account exists for <strong>{email.trim().toLowerCase()}</strong>, you&apos;ll receive a reset link shortly.
+            </p>
+            <div className="fh-back-row">
+              <Link className="fh-edit" to="/login" onClick={playClick}>Back to login</Link>
+            </div>
           </div>
-          <span>Focus Himd</span>
-        </div>
+        ) : (
+          <form onSubmit={handleSubmit} noValidate>
+            <h1 className="fh-verify-title">Reset password</h1>
+            <p className="fh-verify-sub">Enter your email and we&apos;ll send you a reset link.</p>
 
-        <div className="auth-header">
-          <h1>Reset password</h1>
-          <p>Enter your email and we'll send you a reset link</p>
-        </div>
+            {error && <div className="fh-error" role="alert">{error}</div>}
 
-        {error && <div className="auth-error">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="auth-form">
-          <div className="auth-field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
+            <label className="fh-label" htmlFor="fp-email">Email</label>
+            <input id="fp-email" className="fh-input" type="email"
+              placeholder="name@work.com" value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              disabled={loading}
-            />
-          </div>
+              autoComplete="email" disabled={loading} required />
 
-          <button type="submit" className="btn btn-primary auth-submit" disabled={loading}>
-            {loading ? 'Sending...' : 'Send reset link'}
-          </button>
-        </form>
+            <button type="submit" className="fh-submit" disabled={loading}>
+              <span>{loading ? 'Sending…' : 'Send reset link'}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+            </button>
 
-        <div className="auth-links">
-          <Link to="/login" onClick={playClick}>Back to login</Link>
-        </div>
+            <div className="fh-back-row">
+              <Link className="fh-edit" to="/login" onClick={playClick}>Back to login</Link>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div className="fh-status"><span className="fh-dot" /> All systems operational</div>
+      <div className="fh-foot">
+        <span>Privacy</span><span>Terms</span><span>Security</span>
       </div>
     </div>
   );

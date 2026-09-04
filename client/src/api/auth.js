@@ -41,11 +41,10 @@ async function get(path) {
 }
 
 export const authApi = {
-  signup: (email, password) => post('/api/auth/signup', { email, password }),
+  signup: (email, password, confirmPassword) => post('/api/auth/signup', { email, password, confirmPassword }),
   login: (email, password) => post('/api/auth/login', { email, password }),
   verify: (email, code) => post('/api/auth/verify', { email, code }),
   resend: (email) => post('/api/auth/resend', { email }),
   logout: () => post('/api/auth/logout', {}),
-  google: () => post('/api/auth/google', {}),
   me: () => get('/api/auth/me'),
 };

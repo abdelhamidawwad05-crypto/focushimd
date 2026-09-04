@@ -1,5 +1,6 @@
-import Auth from './Auth';
+import Signup from './Signup';
 
-const Register = () => <Auth mode="signup" />;
+// /register renders the same signup page (kept so existing links keep working).
+const Register = () => <Signup />;
 
 export default Register;

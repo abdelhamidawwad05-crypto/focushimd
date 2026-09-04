@@ -103,6 +103,12 @@ router.post('/signup', signupLimiter, requireCsrf, async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Enter a valid email address' });
     const pwErr = validatePassword(password);
     if (pwErr) return res.status(400).json({ message: pwErr });
+    // Defense in depth: the signup page already checks the two password
+    // fields match, but the frontend can be bypassed, so the backend
+    // re-checks whenever the confirmation field is sent.
+    if (req.body && req.body.confirmPassword !== undefined && req.body.confirmPassword !== password) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
 
     const existing = await findUserByEmail(email);
     if (existing) return res.status(409).json({ message: 'An account with this email already exists' });
@@ -265,13 +271,6 @@ router.post('/logout', requireCsrf, (req, res) => {
   const isProd = process.env.NODE_ENV === 'production';
   res.clearCookie('fh_session', { path: '/', secure: isProd, sameSite: isProd ? 'None' : 'Lax' });
   return res.json({ message: 'Signed out' });
-});
-
-// POST /api/auth/google — honest stub: real Google OAuth needs a Google
-// Cloud Client ID + server-side token verification, which this project does
-// not have configured. The button exists in the UI; wiring it is a follow-up.
-router.post('/google', signupLimiter, requireCsrf, (req, res) => {
-  return res.status(501).json({ message: 'Google sign-in is not configured yet' });
 });
 
 module.exports = router;
