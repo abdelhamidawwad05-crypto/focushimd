@@ -40,11 +40,20 @@ if (process.env.DATABASE_URL) {
        duration INTEGER NOT NULL,
        mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
        note TEXT DEFAULT '',
-       completedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       completedat TIMESTAMPTZ NOT NULL DEFAULT NOW()
      );
+     -- Older deployments declared completedAt without quotes, which Postgres
+     -- stored as completedat. Handle the opposite legacy spelling too.
+     DO $$
+     BEGIN
+       IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sessions' AND column_name = 'completedAt')
+          AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sessions' AND column_name = 'completedat') THEN
+         ALTER TABLE sessions RENAME COLUMN "completedAt" TO completedat;
+       END IF;
+     END $$;
      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-     CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
+     CREATE INDEX IF NOT EXISTS idx_completedat ON sessions(completedat DESC);
 
     -- Email verification codes: hashed, expiring, single-use
     CREATE TABLE IF NOT EXISTS verification_codes (
@@ -100,9 +109,9 @@ if (process.env.DATABASE_URL) {
        duration INTEGER NOT NULL,
        mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
        note TEXT DEFAULT '',
-      completedAt TEXT NOT NULL
+       completedat TEXT NOT NULL
     );
-     CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
+     CREATE INDEX IF NOT EXISTS idx_completedat ON sessions(completedat DESC);
 
     CREATE TABLE IF NOT EXISTS verification_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +130,12 @@ if (process.env.DATABASE_URL) {
   const sessionColumns = sqlite.prepare('PRAGMA table_info(sessions)').all();
   if (!sessionColumns.some(c => c.name === 'user_id')) {
     sqlite.exec('ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+  }
+  // Normalize the old local spelling to the same lowercase DB contract used
+  // by PostgreSQL. Existing timestamp values are preserved by RENAME COLUMN.
+  const refreshedSessionColumns = sqlite.prepare('PRAGMA table_info(sessions)').all();
+  if (refreshedSessionColumns.some(c => c.name === 'completedAt') && !refreshedSessionColumns.some(c => c.name === 'completedat')) {
+    sqlite.exec('ALTER TABLE sessions RENAME COLUMN completedAt TO completedat');
   }
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
   db = sqlite;

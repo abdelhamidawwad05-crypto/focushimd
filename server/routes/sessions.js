@@ -10,7 +10,7 @@ const isPg = db.type === 'pg';
 // PostgreSQL folds the legacy unquoted completedAt column to completedat.
 // Normalize that response shape so all callers use the API's camelCase field.
 function sessionOutput(row) {
-  if (!row || row.completedAt !== undefined || row.completedat === undefined) return row;
+  if (!row || row.completedat === undefined) return row;
   const { completedat, ...rest } = row;
   return { ...rest, completedAt: completedat };
 }
@@ -43,12 +43,12 @@ router.post('/', requireCsrf, async (req, res) => {
     let row;
     if (isPg) {
       const r = await db.pool.query(
-        'INSERT INTO sessions (user_id, duration, mood, note, completedAt) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        'INSERT INTO sessions (user_id, duration, mood, note, completedat) VALUES ($1,$2,$3,$4,$5) RETURNING *',
         [req.user.id, duration, mood, note || '', completedAt]
       );
       row = sessionOutput(r.rows[0]);
     } else {
-      const stmt = db.prepare('INSERT INTO sessions (user_id, duration, mood, note, completedAt) VALUES (?, ?, ?, ?, ?)');
+      const stmt = db.prepare('INSERT INTO sessions (user_id, duration, mood, note, completedat) VALUES (?, ?, ?, ?, ?)');
       const result = stmt.run(req.user.id, duration, mood, note || '', completedAt);
       row = sessionOutput(db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid));
     }
@@ -66,19 +66,19 @@ router.get('/', async (req, res) => {
     if (isPg) {
       let sql = 'SELECT * FROM sessions WHERE user_id = $1';
       const params = [req.user.id];
-      if (from) { params.push(new Date(from).toISOString()); sql += ` AND completedAt >= $${params.length}`; }
-      if (to) { params.push(new Date(to).toISOString()); sql += ` AND completedAt <= $${params.length}`; }
-      sql += ' ORDER BY completedAt DESC';
+      if (from) { params.push(new Date(from).toISOString()); sql += ` AND completedat >= $${params.length}`; }
+      if (to) { params.push(new Date(to).toISOString()); sql += ` AND completedat <= $${params.length}`; }
+      sql += ' ORDER BY completedat DESC';
       const rows = await queryAll(sql, params);
       res.json(rows);
     } else {
       let sql = 'SELECT * FROM sessions WHERE user_id = ?';
       const params = [req.user.id];
-      if (from) { sql += ' AND completedAt >= ?'; params.push(new Date(from).toISOString()); }
-      if (to) { sql += ' AND completedAt <= ?'; params.push(new Date(to).toISOString()); }
-      sql += ' ORDER BY completedAt DESC';
-      const rows = db.prepare(sql).all(...params);
-      res.json(rows);
+      if (from) { sql += ' AND completedat >= ?'; params.push(new Date(from).toISOString()); }
+      if (to) { sql += ' AND completedat <= ?'; params.push(new Date(to).toISOString()); }
+      sql += ' ORDER BY completedat DESC';
+      const rows = db.prepare(sql).all(...params).map(sessionOutput);
+       res.json(rows);
     }
   } catch (err) {
     console.error(err);
@@ -93,9 +93,9 @@ router.get('/today', async (req, res) => {
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
     let rows;
     if (isPg) {
-       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 AND completedAt >= $2 AND completedAt < $3 ORDER BY completedAt DESC', [req.user.id, today.toISOString(), tomorrow.toISOString()]);
+       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 AND completedat >= $2 AND completedat < $3 ORDER BY completedat DESC', [req.user.id, today.toISOString(), tomorrow.toISOString()]);
     } else {
-       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? AND completedAt >= ? AND completedAt < ? ORDER BY completedAt DESC').all(req.user.id, today.toISOString(), tomorrow.toISOString());
+       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? AND completedat >= ? AND completedat < ? ORDER BY completedat DESC').all(req.user.id, today.toISOString(), tomorrow.toISOString()).map(sessionOutput);
     }
     res.json(rows);
   } catch (err) {
@@ -108,9 +108,9 @@ router.get('/stats', async (req, res) => {
     await ready();
     let rows;
     if (isPg) {
-       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 ORDER BY completedAt DESC', [req.user.id]);
+       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 ORDER BY completedat DESC', [req.user.id]);
     } else {
-       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY completedAt DESC').all(req.user.id);
+       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY completedat DESC').all(req.user.id).map(sessionOutput);
     }
     const today = new Date(); today.setHours(0,0,0,0);
     let streak = 0;
@@ -141,9 +141,9 @@ router.get('/weekly', async (req, res) => {
     const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate()-7);
     let rows;
     if (isPg) {
-       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 AND completedAt >= $2 ORDER BY completedAt ASC', [req.user.id, weekAgo.toISOString()]);
+       rows = await queryAll('SELECT * FROM sessions WHERE user_id = $1 AND completedat >= $2 ORDER BY completedat ASC', [req.user.id, weekAgo.toISOString()]);
     } else {
-       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? AND completedAt >= ? ORDER BY completedAt ASC').all(req.user.id, weekAgo.toISOString());
+       rows = db.prepare('SELECT * FROM sessions WHERE user_id = ? AND completedat >= ? ORDER BY completedat ASC').all(req.user.id, weekAgo.toISOString()).map(sessionOutput);
     }
     const dailyData = {};
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
