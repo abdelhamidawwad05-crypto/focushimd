@@ -6,6 +6,14 @@ const router = express.Router();
 
 const isPg = db.type === 'pg';
 
+// PostgreSQL folds the legacy unquoted completedAt column to completedat.
+// Normalize that response shape so all callers use the API's camelCase field.
+function sessionOutput(row) {
+  if (!row || row.completedAt !== undefined || row.completedat === undefined) return row;
+  const { completedat, ...rest } = row;
+  return { ...rest, completedAt: completedat };
+}
+
 // Every session endpoint is private. Ownership always comes from the
 // verified JWT, never from request body/query input.
 router.use(requireAuth);
@@ -18,26 +26,26 @@ async function ready() {
 async function queryAll(text, params) {
   if (isPg) {
     const r = await db.pool.query(text, params);
-    return r.rows;
+    return r.rows.map(sessionOutput);
   } else {
-    return db.prepare(text).all(...params);
+     return db.prepare(text).all(...params).map(sessionOutput);
   }
 }
 async function queryGet(text, params) {
   if (isPg) {
     const r = await db.pool.query(text, params);
-    return r.rows[0];
+     return sessionOutput(r.rows[0]);
   } else {
-    return db.prepare(text).get(...params);
+     return sessionOutput(db.prepare(text).get(...params));
   }
 }
 async function queryRun(text, params) {
   if (isPg) {
     const r = await db.pool.query(text, params);
-    return r.rows[0];
+     return sessionOutput(r.rows[0]);
   } else {
     const r = db.prepare(text).run(...params);
-    return db.prepare('SELECT * FROM sessions WHERE id = ?').get(r.lastInsertRowid);
+     return sessionOutput(db.prepare('SELECT * FROM sessions WHERE id = ?').get(r.lastInsertRowid));
   }
 }
 
@@ -55,11 +63,11 @@ router.post('/', async (req, res) => {
         'INSERT INTO sessions (user_id, duration, mood, note, completedAt) VALUES ($1,$2,$3,$4,$5) RETURNING *',
         [req.user.id, duration, mood, note || '', completedAt]
       );
-      row = r.rows[0];
+      row = sessionOutput(r.rows[0]);
     } else {
       const stmt = db.prepare('INSERT INTO sessions (user_id, duration, mood, note, completedAt) VALUES (?, ?, ?, ?, ?)');
       const result = stmt.run(req.user.id, duration, mood, note || '', completedAt);
-      row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid);
+      row = sessionOutput(db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid));
     }
     res.status(201).json(row);
   } catch (err) {
