@@ -78,17 +78,11 @@ body {
   gap: 12px;
 }
 
-.navbar-brand .logo {
+.navbar-brand .logo-img {
   width: 38px;
   height: 38px;
-  background: linear-gradient(135deg, var(--primary), #22c55e);
   border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #000;
-  font-size: 18px;
-  font-weight: 700;
+  display: block;
   box-shadow: 0 0 20px var(--primary-dim);
 }
 

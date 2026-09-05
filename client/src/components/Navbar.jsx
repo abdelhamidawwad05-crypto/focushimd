@@ -19,12 +19,7 @@ const Navbar = () => {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <div className="logo">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 16 14"></polyline>
-          </svg>
-        </div>
+        <img src="/logo.png" alt="Focus Himd logo" width="38" height="38" className="logo-img" />
         <Link to="/" onClick={playClick}>Focus Himd</Link>
       </div>
       {!onAuthPage && (
