@@ -218,8 +218,13 @@ router.post('/login', loginLimiter, requireCsrf, async (req, res) => {
       return res.status(403).json({ user: publicUser(user), needsVerification: true, message: 'Please verify your email first' });
     }
 
-    const token = signSession({ id: user.id, email: user.email });
-    res.cookie('fh_session', token, cookieOpts());
+    // "Remember me" only ever extends the session lifetime (30d vs 7d) via a
+    // longer-lived httpOnly cookie + matching token expiry. Any truthy value
+    // counts as checked; absent/false keeps current behavior. Nothing secret
+    // is stored client-side either way.
+    const rememberMe = !!(req.body && req.body.rememberMe);
+    const token = signSession({ id: user.id, email: user.email }, rememberMe);
+    res.cookie('fh_session', token, cookieOpts(rememberMe));
     return res.json({ user: publicUser(user) });
   } catch (err) {
     console.error('[auth] login error', err.message);

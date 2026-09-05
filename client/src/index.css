@@ -1172,6 +1172,15 @@ body {
   cursor: pointer; padding: 6px; display: flex; border-radius: 8px;
 }
 .fh-eye:hover { color: var(--text); }
+.fh-remember {
+  display: flex; align-items: center; gap: 8px;
+  margin: 12px 0 0; font-size: 13px; color: var(--text-muted);
+  cursor: pointer; user-select: none;
+}
+.fh-remember input {
+  width: 15px; height: 15px; margin: 0;
+  accent-color: var(--primary); cursor: pointer;
+}
 .fh-submit {
   width: 100%; margin-top: 18px;
   display: flex; align-items: center; justify-content: center; gap: 8px;

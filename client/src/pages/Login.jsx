@@ -19,6 +19,7 @@ const Login = () => {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,7 +33,7 @@ const Login = () => {
     setLoading(true);
     playClick();
     try {
-      await login(cleanEmail, password);
+      await login(cleanEmail, password, rememberMe);
       const dest = location.state?.from || '/';
       navigate(dest, { replace: true });
     } catch (err) {
@@ -74,6 +75,13 @@ const Login = () => {
               <EyeIcon open={showPw} />
             </button>
           </div>
+
+          <label className="fh-remember">
+            <input type="checkbox" checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              disabled={loading} />
+            <span>Remember me</span>
+          </label>
 
           <button type="submit" className="fh-submit" disabled={loading}>
             <span>{loading ? 'Signing in…' : 'Log In'}</span>

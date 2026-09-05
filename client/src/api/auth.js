@@ -58,7 +58,7 @@ async function get(path) {
 
 export const authApi = {
   signup: (email, password, confirmPassword) => post('/api/auth/signup', { email, password, confirmPassword }),
-  login: (email, password) => post('/api/auth/login', { email, password }),
+  login: (email, password, rememberMe) => post('/api/auth/login', { email, password, rememberMe: !!rememberMe }),
   verify: (email, code) => post('/api/auth/verify', { email, code }),
   resend: (email) => post('/api/auth/resend', { email }),
   logout: () => post('/api/auth/logout', {}),

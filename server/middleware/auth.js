@@ -7,7 +7,14 @@ const jwt = require('jsonwebtoken');
 // hash) are NEVER loaded here and NEVER sent to the frontend.
 // ---------------------------------------------------------------------------
 
-function cookieOpts() {
+// Session lifetimes: default keeps the current 7-day behavior; a login with
+// "Remember me" checked gets 30 days. Both are persistent httpOnly Secure
+// cookies (survive browser restarts) — credentials never touch localStorage.
+const SESSION_DAYS = 7;
+const REMEMBER_DAYS = 30;
+
+function cookieOpts(rememberMe) {
+  const days = rememberMe ? REMEMBER_DAYS : SESSION_DAYS;
   const isProd = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,          // JS in the page cannot read it (XSS protection)
@@ -15,15 +22,17 @@ function cookieOpts() {
     sameSite: isProd ? 'None' : 'Lax', // None+Secure needed: frontend
     // (focushimd.site) and API (focushimd.onrender.com) are cross-site
     path: '/',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    maxAge: days * 24 * 60 * 60 * 1000
   };
 }
 
-function signSession(user) {
+function signSession(user, rememberMe) {
   return jwt.sign(
     { id: user.id, email: user.email },
     process.env.JWT_SECRET || 'dev-only-change-me',
-    { expiresIn: '7d' }
+    // Token lifetime always matches the cookie lifetime so neither outlives
+    // the other (an outlived token would either strand or over-extend login).
+    { expiresIn: rememberMe ? '30d' : '7d' }
   );
 }
 

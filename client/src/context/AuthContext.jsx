@@ -37,8 +37,8 @@ export const AuthProvider = ({ children }) => {
     return data;
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const data = await authApi.login(email, password);
+  const login = useCallback(async (email, password, rememberMe) => {
+    const data = await authApi.login(email, password, rememberMe);
     if (data.needsVerification) {
       savePendingEmail(data.user.email);
       const err = new Error(data.message || 'Please verify your email first');
