@@ -20,25 +20,31 @@ if (process.env.DATABASE_URL) {
 
   // NOTE: every value below goes through $1-style placeholders in the route
   // handlers (parameterized queries) so user input can never alter the SQL.
-  pool.query(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id SERIAL PRIMARY KEY,
-      duration INTEGER NOT NULL,
-      mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
-      note TEXT DEFAULT '',
-      completedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
-
-    -- Persistent user accounts (one row per signup)
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
+  const schemaReady = pool.query(`
+     -- Persistent user accounts (one row per signup)
+     CREATE TABLE IF NOT EXISTS users (
+       id SERIAL PRIMARY KEY,
+       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       verified BOOLEAN NOT NULL DEFAULT FALSE
-    );
-    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+     );
+     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+     -- A session belongs to exactly one authenticated user. The nullable
+     -- migration below preserves old rows but they remain inaccessible until
+     -- explicitly assigned; new rows always receive user_id from req.user.id.
+     CREATE TABLE IF NOT EXISTS sessions (
+       id SERIAL PRIMARY KEY,
+       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       duration INTEGER NOT NULL,
+       mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
+       note TEXT DEFAULT '',
+       completedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     );
+     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+     CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
 
     -- Email verification codes: hashed, expiring, single-use
     CREATE TABLE IF NOT EXISTS verification_codes (
@@ -51,11 +57,15 @@ if (process.env.DATABASE_URL) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
-  `).catch(e => console.error('PG init error', e.message));
+  `).then(() => console.log('✅ Postgres schema ready')).catch(e => {
+    console.error('PG init error', e.message);
+    throw e;
+  });
 
   db = {
     type: 'pg',
     pool,
+    ready: schemaReady,
     prepare: () => { throw new Error('Use pool directly for pg'); }
   };
   console.log('📦 Using Postgres');
@@ -71,24 +81,28 @@ if (process.env.DATABASE_URL) {
     }
   } catch (e) {}
   const sqlite = new DatabaseSync(dbPath);
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      duration INTEGER NOT NULL,
-      mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
-      note TEXT DEFAULT '',
+    sqlite.exec(`
+     PRAGMA foreign_keys = ON;
+
+     -- Persistent user accounts (one row per signup)
+     CREATE TABLE IF NOT EXISTS users (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       email TEXT NOT NULL UNIQUE,
+       password_hash TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       verified INTEGER NOT NULL DEFAULT 0
+     );
+     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+     CREATE TABLE IF NOT EXISTS sessions (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       duration INTEGER NOT NULL,
+       mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
+       note TEXT DEFAULT '',
       completedAt TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
-
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      verified INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+     CREATE INDEX IF NOT EXISTS idx_completedAt ON sessions(completedAt DESC);
 
     CREATE TABLE IF NOT EXISTS verification_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,9 +114,18 @@ if (process.env.DATABASE_URL) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
-  `);
+     `);
+  // Existing SQLite databases predate per-user ownership. Keep those legacy
+  // rows with user_id NULL so they cannot be shown to anybody, and require
+  // user_id on every newly written row.
+  const sessionColumns = sqlite.prepare('PRAGMA table_info(sessions)').all();
+  if (!sessionColumns.some(c => c.name === 'user_id')) {
+    sqlite.exec('ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+  }
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
   db = sqlite;
   db.type = 'sqlite';
+  db.ready = Promise.resolve();
   console.log('📦 Using SQLite:', dbPath);
 }
 
