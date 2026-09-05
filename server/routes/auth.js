@@ -6,6 +6,7 @@ const db = require('../config/db');
 const { normalizeEmail, validatePassword, validateCode } = require('../utils/validation');
 const { requireAuth, signSession, cookieOpts } = require('../middleware/auth');
 const { issueCsrf, requireCsrf } = require('../middleware/csrf');
+const { sendVerificationEmail } = require('../email/send');
 
 const router = express.Router();
 const isPg = () => db.type === 'pg';
@@ -54,6 +55,18 @@ async function findUserById(id) {
   return db.prepare('SELECT * FROM users WHERE id = ?').get(id) || null;
 }
 
+// Remove an account and its verification codes. Used to roll back a signup
+// when the verification email could not be delivered, so the user can retry.
+async function deleteUser(id) {
+  if (isPg()) {
+    await db.pool.query('DELETE FROM verification_codes WHERE user_id = $1', [id]);
+    await db.pool.query('DELETE FROM users WHERE id = $1', [id]);
+  } else {
+    db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+}
+
 // NEVER send these fields to the frontend (password hash, codes live here).
 function publicUser(u) {
   if (!u) return null;
@@ -68,27 +81,51 @@ function publicUser(u) {
 function nowIso() { return new Date().toISOString(); }
 function boolOut(v) { return isPg() ? !!v : v === 1; }
 
-// Create a 6-digit code, store ONLY its bcrypt hash, expire in 10 minutes,
-// single-use (used flag). Old unused codes for the user are invalidated.
-async function createVerificationCode(userId) {
+// Burn one code row (mark used) by id. Used to invalidate a code whose email
+// could not be delivered, so a valid-but-undelivered code never lingers.
+async function burnCodeRow(id) {
+  if (isPg()) {
+    await db.pool.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [id]);
+  } else {
+    db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(id);
+  }
+}
+
+// Create a 6-digit code, store ONLY its bcrypt hash (10-min expiry,
+// single-use), then DELIVER it via Brevo. Old unused codes are invalidated.
+// Order matters: persist FIRST, then send. If the send fails, the just-created
+// row is burned so a sent-but-unstored code (which could never validate) and
+// a stored-but-unsent code (which the user never received) are both
+// impossible. Delivery failure throws a tagged error so callers return a real
+// failure to the frontend instead of a fake "check your email".
+async function createVerificationCode(userId, email) {
   const code = String(crypto.randomInt(100000, 1000000)); // 6 digits
   const codeHash = await bcrypt.hash(code, 10);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const created = nowIso();
+
+  let codeRowId;
   if (isPg()) {
     await db.pool.query('UPDATE verification_codes SET used = TRUE WHERE user_id = $1 AND used = FALSE', [userId]);
-    await db.pool.query(
-      'INSERT INTO verification_codes (user_id, code_hash, expires_at, used, attempts, created_at) VALUES ($1,$2,$3,FALSE,0,$4)',
+    const r = await db.pool.query(
+      'INSERT INTO verification_codes (user_id, code_hash, expires_at, used, attempts, created_at) VALUES ($1,$2,$3,FALSE,0,$4) RETURNING id',
       [userId, codeHash, expiresAt, created]
     );
+    codeRowId = r.rows[0].id;
   } else {
     db.prepare('UPDATE verification_codes SET used = 1 WHERE user_id = ? AND used = 0').run(userId);
-    db.prepare('INSERT INTO verification_codes (user_id, code_hash, expires_at, used, attempts, created_at) VALUES (?, ?, ?, 0, 0, ?)').run(userId, codeHash, expiresAt, created);
+    const r = db.prepare('INSERT INTO verification_codes (user_id, code_hash, expires_at, used, attempts, created_at) VALUES (?, ?, ?, 0, 0, ?)').run(userId, codeHash, expiresAt, created);
+    codeRowId = Number(r.lastInsertRowid);
   }
-  // No SMTP provider is configured in this project yet, so the code is
-  // written to the server logs (Render → Logs). It is NEVER returned in an
-  // API response. Once you add SMTP env vars, send it by email instead.
-  console.log(`[auth] verification code for user ${userId}: ${code} (expires in 10 min)`);
+
+  try {
+    await sendVerificationEmail({ to: email, code });
+  } catch (err) {
+    try { await burnCodeRow(codeRowId); } catch (_) {}
+    const e = new Error(`Verification email not delivered: ${err.message}`);
+    e.isEmailDelivery = true;
+    throw e;
+  }
   return expiresAt;
 }
 
@@ -97,6 +134,7 @@ router.get('/csrf-token', (req, res) => issueCsrf(req, res));
 
 // POST /api/auth/signup — creates a REAL persistent user row.
 router.post('/signup', signupLimiter, requireCsrf, async (req, res) => {
+  let createdUserId = null;
   try {
     const email = normalizeEmail(req.body && req.body.email);
     const password = req.body && req.body.password;
@@ -111,7 +149,19 @@ router.post('/signup', signupLimiter, requireCsrf, async (req, res) => {
     }
 
     const existing = await findUserByEmail(email);
-    if (existing) return res.status(409).json({ message: 'An account with this email already exists' });
+    // An email is only "taken" by a FULLY VERIFIED, completed account.
+    // A started-but-never-verified signup never created a real account, so it
+    // must not lock out the address: drop the stale unverified record (and
+    // its codes) and restart the signup cleanly below. This is safe because
+    // unverified rows hold no session and no user data.
+    if (existing && boolOut(existing.verified)) {
+      return res.status(409).json({ message: 'An account with this email already exists' });
+    }
+    if (existing && !boolOut(existing.verified)) {
+      try { await deleteUser(existing.id); } catch (_) {}
+      // Never log anything sensitive here — just the fact of the cleanup.
+      console.log(`[auth] cleared stale unverified signup for ${email}, restarting signup`);
+    }
 
     // bcrypt: adaptive one-way hash with a unique salt per password.
     // Plain text is never stored, so a database leak does not reveal logins.
@@ -128,12 +178,22 @@ router.post('/signup', signupLimiter, requireCsrf, async (req, res) => {
       const r = db.prepare('INSERT INTO users (email, password_hash, created_at, verified) VALUES (?, ?, ?, 0)').run(email, passwordHash, created);
       user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
     }
+    createdUserId = user.id;
 
-    const expiresAt = await createVerificationCode(user.id);
+    const expiresAt = await createVerificationCode(user.id, email);
     // Not verified yet → no session cookie. Frontend routes to /verify.
     return res.status(201).json({ user: publicUser(user), verifyExpiresAt: expiresAt });
   } catch (err) {
+    // If the code email could not be delivered, roll the signup back so the
+    // user can retry (otherwise the next attempt would 409 "already exists").
+    if (createdUserId != null && err.isEmailDelivery) {
+      try { await deleteUser(createdUserId); } catch (_) {}
+    }
+    // Log the reason server-side; never the API key or the code itself.
     console.error('[auth] signup error', err.message);
+    if (err.isEmailDelivery) {
+      return res.status(502).json({ message: 'We could not send your verification email. Please try again or use a different email address.' });
+    }
     return res.status(500).json({ message: 'Server error, please try again' });
   }
 });
@@ -247,10 +307,14 @@ router.post('/resend', resendLimiter, requireCsrf, async (req, res) => {
     if (last && Date.now() - new Date(last.created_at).getTime() < 30 * 1000) {
       return res.status(429).json({ message: 'Please wait before requesting a new code' });
     }
-    const expiresAt = await createVerificationCode(user.id);
+    const expiresAt = await createVerificationCode(user.id, email);
     return res.json({ message: 'If an account exists, a new code was sent', verifyExpiresAt: expiresAt });
   } catch (err) {
+    // Log the reason server-side; never the API key or the code itself.
     console.error('[auth] resend error', err.message);
+    if (err.isEmailDelivery) {
+      return res.status(502).json({ message: 'We could not send the verification email. Please try again in a moment.' });
+    }
     return res.status(500).json({ message: 'Server error, please try again' });
   }
 });

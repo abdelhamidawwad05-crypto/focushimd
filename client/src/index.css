@@ -1223,9 +1223,12 @@ body {
 .fh-code-label-row { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 10px; }
 .fh-code-label-row .fh-label { margin: 0; }
 .fh-paste-hint { font-size: 11.5px; color: var(--text-muted); }
-.fh-code-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 4px; }
+.fh-code-row { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 4px; }
 .fh-code-box {
-  aspect-ratio: 1; background: rgba(0,0,0,0.35);
+  /* Fixed equal squares: deterministic size that never stretches with the
+     card width, even if the row layout rule is ever missing/cached-stale. */
+  width: 52px; height: 52px; flex: 0 0 52px; padding: 0; line-height: 1;
+  background: rgba(0,0,0,0.35);
   border: 1px solid var(--glass-border); border-radius: 10px;
   color: var(--text); font-size: 20px; font-weight: 700; text-align: center;
   outline: none; transition: var(--transition); font-family: inherit; caret-color: var(--primary);
@@ -1248,6 +1251,6 @@ body {
   .fh-auth-top h1 { font-size: 24px; }
   .fh-card { padding: 20px 16px; }
   .fh-code-row { gap: 6px; }
-  .fh-code-box { font-size: 17px; }
+  .fh-code-box { width: 44px; height: 44px; flex-basis: 44px; font-size: 17px; }
   .navbar-email { display: none; }
 }
