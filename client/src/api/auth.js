@@ -57,6 +57,7 @@ async function get(path) {
 }
 
 export const authApi = {
+  csrfToken: () => ensureCsrf(),
   signup: (email, password, confirmPassword) => post('/api/auth/signup', { email, password, confirmPassword }),
   login: (email, password, rememberMe) => post('/api/auth/login', { email, password, rememberMe: !!rememberMe }),
   verify: (email, code) => post('/api/auth/verify', { email, code }),

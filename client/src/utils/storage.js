@@ -1,13 +1,16 @@
+import { authApi } from '../api/auth';
+
 const API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const apiUrl = (path) => `${API}${path}`;
 
 export async function saveSession({ duration, mood, note }) {
   try {
+    const csrfToken = await authApi.csrfToken();
     const res = await fetch(apiUrl('/api/sessions'), {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
       body: JSON.stringify({ duration, mood, note })
     });
     if (!res.ok) throw new Error('backend error');

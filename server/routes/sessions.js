@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
+const { requireCsrf } = require('../middleware/csrf');
 
 const router = express.Router();
 
@@ -22,7 +23,6 @@ async function ready() {
   if (db.ready) await db.ready;
 }
 
-// helper
 async function queryAll(text, params) {
   if (isPg) {
     const r = await db.pool.query(text, params);
@@ -31,25 +31,8 @@ async function queryAll(text, params) {
      return db.prepare(text).all(...params).map(sessionOutput);
   }
 }
-async function queryGet(text, params) {
-  if (isPg) {
-    const r = await db.pool.query(text, params);
-     return sessionOutput(r.rows[0]);
-  } else {
-     return sessionOutput(db.prepare(text).get(...params));
-  }
-}
-async function queryRun(text, params) {
-  if (isPg) {
-    const r = await db.pool.query(text, params);
-     return sessionOutput(r.rows[0]);
-  } else {
-    const r = db.prepare(text).run(...params);
-     return sessionOutput(db.prepare('SELECT * FROM sessions WHERE id = ?').get(r.lastInsertRowid));
-  }
-}
 
-router.post('/', async (req, res) => {
+router.post('/', requireCsrf, async (req, res) => {
   try {
     await ready();
     const { duration, mood, note } = req.body;
