@@ -1,6 +1,6 @@
 import { authApi } from '../api/auth';
 
-const API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const API = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 
 const apiUrl = (path) => `${API}${path}`;
 
