@@ -50,7 +50,8 @@ async function requireAuth(req, res, next) {
   const token = req.cookies && req.cookies.fh_session;
   if (!token) return res.status(401).json({ message: 'Not signed in' });
   try {
-    req.user = jwt.verify(token, jwtSecret());
+    if (db.ready) await db.ready;
+    req.user = jwt.verify(token, jwtSecret(), { algorithms: ['HS256'] });
     let currentVersion = 0;
     if (db.type === 'pg') {
       const result = await db.pool.query('SELECT session_version FROM users WHERE id = $1', [req.user.id]);

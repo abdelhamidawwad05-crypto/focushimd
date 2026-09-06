@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
 const { requireCsrf } = require('../middleware/csrf');
+const { cleanString } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -32,12 +33,21 @@ async function queryAll(text, params) {
   }
 }
 
+function parseDateQuery(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
 router.post('/', requireCsrf, async (req, res) => {
   try {
     await ready();
-    const { duration, mood, note } = req.body;
+    const duration = Number(req.body && req.body.duration);
+    const mood = req.body && req.body.mood;
+    const note = cleanString(req.body && req.body.note, 2000);
     const idempotencyKey = (req.get('Idempotency-Key') || '').trim();
-    if (!duration || !mood || !['good','okay','rough'].includes(mood)) {
+    if (!Number.isInteger(duration) || duration < 1 || duration > 24 * 60 || !mood || !['good','okay','rough'].includes(mood)) {
       return res.status(400).json({ message: 'duration and valid mood required' });
     }
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
@@ -49,7 +59,7 @@ router.post('/', requireCsrf, async (req, res) => {
     if (isPg) {
       const r = await db.pool.query(
         'INSERT INTO sessions (user_id, duration, mood, note, completedat, idempotency_key) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING *',
-        [req.user.id, duration, mood, note || '', completedAt, idempotencyKey]
+        [req.user.id, duration, mood, note, completedAt, idempotencyKey]
       );
       if (r.rows[0]) row = sessionOutput(r.rows[0]);
       else {
@@ -58,7 +68,7 @@ router.post('/', requireCsrf, async (req, res) => {
         row = sessionOutput(existing.rows[0]);
       }
     } else {
-      const result = db.prepare('INSERT OR IGNORE INTO sessions (user_id, duration, mood, note, completedat, idempotency_key) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, duration, mood, note || '', completedAt, idempotencyKey);
+      const result = db.prepare('INSERT OR IGNORE INTO sessions (user_id, duration, mood, note, completedat, idempotency_key) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, duration, mood, note, completedAt, idempotencyKey);
       row = sessionOutput(db.prepare('SELECT * FROM sessions WHERE user_id = ? AND idempotency_key = ?').get(req.user.id, idempotencyKey));
       created = Number(result.changes || 0) === 1;
     }
@@ -73,19 +83,24 @@ router.get('/', async (req, res) => {
   try {
     await ready();
     const { from, to } = req.query;
+    const fromIso = parseDateQuery(from);
+    const toIso = parseDateQuery(to);
+    if (fromIso === undefined || toIso === undefined) {
+      return res.status(400).json({ message: 'Invalid date filter' });
+    }
     if (isPg) {
       let sql = 'SELECT * FROM sessions WHERE user_id = $1';
       const params = [req.user.id];
-      if (from) { params.push(new Date(from).toISOString()); sql += ` AND completedat >= $${params.length}`; }
-      if (to) { params.push(new Date(to).toISOString()); sql += ` AND completedat <= $${params.length}`; }
+      if (fromIso) { params.push(fromIso); sql += ` AND completedat >= $${params.length}`; }
+      if (toIso) { params.push(toIso); sql += ` AND completedat <= $${params.length}`; }
       sql += ' ORDER BY completedat DESC';
       const rows = await queryAll(sql, params);
       res.json(rows);
     } else {
       let sql = 'SELECT * FROM sessions WHERE user_id = ?';
       const params = [req.user.id];
-      if (from) { sql += ' AND completedat >= ?'; params.push(new Date(from).toISOString()); }
-      if (to) { sql += ' AND completedat <= ?'; params.push(new Date(to).toISOString()); }
+      if (fromIso) { sql += ' AND completedat >= ?'; params.push(fromIso); }
+      if (toIso) { sql += ' AND completedat <= ?'; params.push(toIso); }
       sql += ' ORDER BY completedat DESC';
       const rows = db.prepare(sql).all(...params).map(sessionOutput);
        res.json(rows);

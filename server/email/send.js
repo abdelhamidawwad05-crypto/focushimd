@@ -1,12 +1,10 @@
 // ---------------------------------------------------------------------------
 // Brevo transactional email sender.
 //
-// Sends the 6-digit verification code to the user's inbox via Brevo's
-// official Node.js SDK. The API key lives ONLY in the BREVO_API_KEY env var
+// Sends transactional mail to the user's inbox through Brevo's HTTPS API.
+// The API key lives ONLY in the BREVO_API_KEY env var
 // (server-side). Nothing here ever prints the key or the verification code.
 // ---------------------------------------------------------------------------
-
-const SibApiV3Sdk = require('sib-api-v3-sdk');
 
 const SENDER_NAME = process.env.BREVO_SENDER_NAME || 'Focus Himd';
 // Optional sender override. If focushimd.site is verified as a sender domain
@@ -15,11 +13,37 @@ const SENDER_NAME = process.env.BREVO_SENDER_NAME || 'Focus Himd';
 // Brevo account (their default sending domain) until yours is verified.
 const SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'noreply@focushimd.site';
 
-function api() {
-  const client = SibApiV3Sdk.ApiClient.instance;
-  const auth = client.authentications['api-key'];
-  auth.apiKey = process.env.BREVO_API_KEY;
-  return new SibApiV3Sdk.TransactionalEmailsApi();
+async function sendTransactionalEmail({ to, subject, htmlContent }) {
+  if (!process.env.BREVO_API_KEY) throw new Error('BREVO_API_KEY is not configured');
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+        to: [{ email: to }],
+        subject,
+        htmlContent,
+      }),
+      signal: ctrl.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = body.message || body.code || `HTTP ${response.status}`;
+      const error = new Error(`Brevo send failed [HTTP ${response.status}]: ${message}`);
+      error.status = response.status;
+      throw error;
+    }
+    return body.messageId || '';
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Straightforward, readable HTML — works in standard email clients.
@@ -81,18 +105,12 @@ function passwordResetHtml(resetUrl) {
 // every send is provable in the server logs). Throws on failure so the caller
 // can surface a real error to the frontend (never a fake "check your email").
 async function sendVerificationEmail({ to, code }) {
-  const apiInstance = api();
-  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-  sendSmtpEmail.sender = { name: SENDER_NAME, email: SENDER_EMAIL };
-  sendSmtpEmail.to = [{ email: to }];
-  sendSmtpEmail.subject = 'Your Focus Himd verification code';
-  sendSmtpEmail.htmlContent = verificationHtml(code);
-
   try {
-    // NOTE: sendTransacEmail resolves with the CreateSmtpEmail model itself
-    // (it has .messageId), NOT with a {data, response} wrapper.
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    const messageId = (result && result.messageId) || '';
+    const messageId = await sendTransactionalEmail({
+      to,
+      subject: 'Your Focus Himd verification code',
+      htmlContent: verificationHtml(code),
+    });
     if (!messageId) {
       console.log(`[email] verification email accepted by Brevo for ${to} (no messageId returned)`);
       return messageId;
@@ -118,17 +136,14 @@ async function sendVerificationEmail({ to, code }) {
 }
 
 async function sendPasswordResetEmail({ to, token }) {
-  const apiInstance = api();
-  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
   const appUrl = (process.env.APP_URL || 'https://focushimd.site').trim().replace(/\/$/, '');
   const resetUrl = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
-  sendSmtpEmail.sender = { name: SENDER_NAME, email: SENDER_EMAIL };
-  sendSmtpEmail.to = [{ email: to }];
-  sendSmtpEmail.subject = 'Reset your Focus Himd password';
-  sendSmtpEmail.htmlContent = passwordResetHtml(resetUrl);
   try {
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    const messageId = (result && result.messageId) || '';
+    const messageId = await sendTransactionalEmail({
+      to,
+      subject: 'Reset your Focus Himd password',
+      htmlContent: passwordResetHtml(resetUrl),
+    });
     console.log(`[email] password reset email accepted by Brevo for ${to}${messageId ? ` (messageId=${messageId})` : ''}`);
     if (messageId) await confirmNoDeliveryError(messageId, to);
     return messageId;

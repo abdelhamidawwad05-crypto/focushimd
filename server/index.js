@@ -9,21 +9,34 @@ require('dotenv').config();
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET?.trim()) {
   throw new Error('FATAL: JWT_SECRET must be set in production; refusing to start');
 }
+if (process.env.NODE_ENV === 'production' && !process.env.BREVO_API_KEY?.trim()) {
+  throw new Error('FATAL: BREVO_API_KEY must be set in production; refusing to start');
+}
 
 const sessionRoutes = require('./routes/sessions');
 const authRoutes = require('./routes/auth');
 const db = require('./config/db');
 
 const app = express();
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 // Behind Render's proxy; needed so Secure cookies + client IPs work right.
 app.set('trust proxy', 1);
 
 const allowedOrigins = [
-  'http://localhost:3000',
   'https://focushimd.site',
   'https://www.focushimd.site',
   'https://focushimd.vercel.app'
 ];
+if (process.env.NODE_ENV !== 'production') allowedOrigins.push('http://localhost:3000');
 
 function isAllowedOrigin(origin) {
   if (!origin) return true; // curl / health checks have no Origin

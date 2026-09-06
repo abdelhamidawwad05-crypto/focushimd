@@ -8,7 +8,7 @@ Self-development tracker — Pomodoro timer + mood journaling.
 - Root: `client`
 - Build: `npm install && npm run build`
 - Output: `dist`
-- Env: `VITE_API_URL=https://focushimd-api.onrender.com`
+- Env: `VITE_API_URL=https://focushimd.onrender.com`
 
 ### Backend (Render)
 - Root: `server`
