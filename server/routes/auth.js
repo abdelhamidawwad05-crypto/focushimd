@@ -129,6 +129,103 @@ async function createVerificationCode(userId, email) {
   return expiresAt;
 }
 
+const sqliteVerifyLocks = new Map();
+
+async function withSqliteUserLock(userId, work) {
+  const key = String(userId);
+  const previous = sqliteVerifyLocks.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise(resolve => { release = resolve; });
+  sqliteVerifyLocks.set(key, current);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (sqliteVerifyLocks.get(key) === current) sqliteVerifyLocks.delete(key);
+  }
+}
+
+// Serialize verification attempts for one user. PostgreSQL uses a row lock
+// inside a transaction; SQLite uses BEGIN IMMEDIATE. This keeps the read,
+// bcrypt comparison, attempt increment, and code consumption one atomic unit.
+async function verifyCodeAtomically(userId, code) {
+  if (isPg()) {
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await client.query(
+        'SELECT * FROM verification_codes WHERE user_id = $1 AND used = FALSE ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
+        [userId]
+      );
+      const row = r.rows[0] || null;
+      if (!row) {
+        await client.query('COMMIT');
+        return { status: 'invalid' };
+      }
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        await client.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
+        await client.query('COMMIT');
+        return { status: 'expired' };
+      }
+      if (Number(row.attempts || 0) >= 5) {
+        await client.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
+        await client.query('COMMIT');
+        return { status: 'too_many' };
+      }
+      const match = await bcrypt.compare(code, row.code_hash);
+      if (!match) {
+        await client.query('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = $1', [row.id]);
+        await client.query('COMMIT');
+        return { status: 'invalid' };
+      }
+      await client.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
+      await client.query('UPDATE users SET verified = TRUE WHERE id = $1', [userId]);
+      await client.query('COMMIT');
+      return { status: 'verified' };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  return withSqliteUserLock(userId, async () => {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+    const row = db.prepare('SELECT * FROM verification_codes WHERE user_id = ? AND used = 0 ORDER BY created_at DESC LIMIT 1').get(userId) || null;
+    if (!row) {
+      db.exec('COMMIT');
+      return { status: 'invalid' };
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
+      db.exec('COMMIT');
+      return { status: 'expired' };
+    }
+    if (Number(row.attempts || 0) >= 5) {
+      db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
+      db.exec('COMMIT');
+      return { status: 'too_many' };
+    }
+    const match = await bcrypt.compare(code, row.code_hash);
+    if (!match) {
+      db.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+      db.exec('COMMIT');
+      return { status: 'invalid' };
+    }
+    db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
+    db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(userId);
+    db.exec('COMMIT');
+    return { status: 'verified' };
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch (_) {}
+      throw err;
+    }
+  });
+}
+
 // CSRF token endpoint (called by the frontend before any POST here).
 router.get('/csrf-token', (req, res) => issueCsrf(req, res));
 
@@ -244,45 +341,17 @@ router.post('/verify', verifyLimiter, requireCsrf, async (req, res) => {
     const user = await findUserByEmail(email);
     if (!user) return res.status(400).json({ message: 'Invalid or expired code' });
 
-    let row;
-    if (isPg()) {
-      const r = await db.pool.query(
-        'SELECT * FROM verification_codes WHERE user_id = $1 AND used = FALSE ORDER BY created_at DESC LIMIT 1',
-        [user.id]
-      );
-      row = r.rows[0] || null;
-    } else {
-      row = db.prepare('SELECT * FROM verification_codes WHERE user_id = ? AND used = 0 ORDER BY created_at DESC LIMIT 1').get(user.id) || null;
-    }
-    if (!row) return res.status(400).json({ message: 'Invalid or expired code' });
-    if (new Date(row.expires_at).getTime() < Date.now()) {
-      if (isPg()) await db.pool.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
-      else db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
+    const verification = await verifyCodeAtomically(user.id, String(code).trim());
+    if (verification.status === 'expired') {
       return res.status(400).json({ message: 'Code expired, request a new one' });
     }
-
-    const attempts = Number(row.attempts || 0);
-    if (attempts >= 5) {
-      if (isPg()) await db.pool.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
-      else db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
+    if (verification.status === 'too_many') {
       return res.status(429).json({ message: 'Too many wrong attempts, request a new code' });
     }
-
-    const match = await bcrypt.compare(String(code).trim(), row.code_hash);
-    if (!match) {
-      if (isPg()) await db.pool.query('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = $1', [row.id]);
-      else db.prepare('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+    if (verification.status !== 'verified') {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
 
-    // Single-use: consume the code, then mark the account verified.
-    if (isPg()) {
-      await db.pool.query('UPDATE verification_codes SET used = TRUE WHERE id = $1', [row.id]);
-      await db.pool.query('UPDATE users SET verified = TRUE WHERE id = $1', [user.id]);
-    } else {
-      db.prepare('UPDATE verification_codes SET used = 1 WHERE id = ?').run(row.id);
-      db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(user.id);
-    }
     const fresh = await findUserById(user.id);
     const token = signSession({ id: fresh.id, email: fresh.email });
     res.cookie('fh_session', token, cookieOpts());

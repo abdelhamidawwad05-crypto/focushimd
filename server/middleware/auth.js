@@ -29,18 +29,27 @@ function cookieOpts(rememberMe) {
 function signSession(user, rememberMe) {
   return jwt.sign(
     { id: user.id, email: user.email },
-    process.env.JWT_SECRET || 'dev-only-change-me',
+    jwtSecret(),
     // Token lifetime always matches the cookie lifetime so neither outlives
     // the other (an outlived token would either strand or over-extend login).
     { expiresIn: rememberMe ? '30d' : '7d' }
   );
 }
 
+function jwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production' && !secret?.trim()) {
+    throw new Error('JWT_SECRET is required in production');
+  }
+  // Development-only convenience; index.js refuses this path in production.
+  return secret || 'dev-only-change-me';
+}
+
 function requireAuth(req, res, next) {
   const token = req.cookies && req.cookies.fh_session;
   if (!token) return res.status(401).json({ message: 'Not signed in' });
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || 'dev-only-change-me');
+    req.user = jwt.verify(token, jwtSecret());
     next();
   } catch (e) {
     return res.status(401).json({ message: 'Session expired, please sign in again' });

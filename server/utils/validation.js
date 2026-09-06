@@ -25,6 +25,7 @@ function validatePassword(password) {
   if (typeof password !== 'string') return 'Password is required';
   if (password.length < 8) return 'Password must be at least 8 characters';
   if (password.length > 128) return 'Password is too long';
+  if (Buffer.byteLength(password, 'utf8') > 72) return 'Password must be 72 UTF-8 bytes or fewer';
   return null;
 }
 

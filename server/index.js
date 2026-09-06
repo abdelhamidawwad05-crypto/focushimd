@@ -4,6 +4,12 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+// Never boot production with a forgeable default signing key. Render must
+// provide JWT_SECRET as a secret environment variable.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET?.trim()) {
+  throw new Error('FATAL: JWT_SECRET must be set in production; refusing to start');
+}
+
 const sessionRoutes = require('./routes/sessions');
 const authRoutes = require('./routes/auth');
 const db = require('./config/db');
@@ -22,11 +28,6 @@ const allowedOrigins = [
 function isAllowedOrigin(origin) {
   if (!origin) return true; // curl / health checks have no Origin
   if (allowedOrigins.includes(origin)) return true;
-  try {
-    const u = new URL(origin);
-    // Vercel preview deploys for this project only
-    if (u.hostname.endsWith('.vercel.app')) return true;
-  } catch (e) {}
   return false;
 }
 
@@ -88,5 +89,4 @@ app.get('/api/health', async (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Focus Himd server running on port ${PORT} [${db.type || 'sqlite'}]`);
-  if (!process.env.JWT_SECRET) console.log('⚠️  JWT_SECRET not set — set it in production');
 });

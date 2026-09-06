@@ -51,6 +51,7 @@ const Signup = () => {
     if (!EMAIL_RE.test(cleanEmail)) { setError('Enter a valid email address'); return; }
     if (!password || password.length < 8) { setError('Password must be at least 8 characters'); return; }
     if (password.length > 128) { setError('Password is too long'); return; }
+    if (new TextEncoder().encode(password).length > 72) { setError('Password must be 72 UTF-8 bytes or fewer'); return; }
     if (password !== confirm) { setError('Passwords do not match'); return; }
     setLoading(true);
     playClick();
