@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { useAuth } from './AuthContext';
+import { restoredDisplay } from './timerState';
 
 // ---------------------------------------------------------------------------
 // Global timer state (context, not per-component state).
@@ -19,6 +21,7 @@ const TimerContext = createContext(null);
 const FOCUS_PRESETS = [25, 50];
 const BREAK_DEFAULT = 5;
 const STORE_KEY = 'fh_timer_state';
+const COMPLETED_KEY = 'fh_completed_session';
 
 function loadPersisted() {
   try {
@@ -28,6 +31,20 @@ function loadPersisted() {
   } catch (e) {
     return null;
   }
+}
+
+function loadCompleted() {
+  try {
+    const raw = localStorage.getItem(COMPLETED_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function newClientId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 const DEFAULT_STATE = {
@@ -41,23 +58,27 @@ const DEFAULT_STATE = {
 };
 
 export const TimerProvider = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [state, setState] = useState(() => {
     const p = loadPersisted();
     // Only restore a session that was actively in progress (running or paused).
     return (p && (p.isRunning || p.isPaused)) ? { ...DEFAULT_STATE, ...p } : DEFAULT_STATE;
   });
   const [display, setDisplay] = useState(() => {
-    const p = loadPersisted();
-    if (p && p.isRunning) {
-      const total = (p.isBreak ? BREAK_DEFAULT : p.focusMin) * 60;
-      const elapsed = Math.floor((Date.now() - p.startTs) / 1000);
-      return Math.max(0, total - elapsed);
-    }
-    if (p && p.isPaused) return p.remainingBase || 25 * 60;
-    return 25 * 60;
+    return restoredDisplay(loadPersisted());
   });
-  const [completedDuration, setCompletedDuration] = useState(null);
+  const [completedSession, setCompletedSession] = useState(loadCompleted);
   const intervalRef = useRef(null);
+
+  // A pending completion belongs to the account that created it. Never allow
+  // another account in the same browser to submit it.
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user || (completedSession && String(completedSession.userId) !== String(user.id))) {
+      setCompletedSession(null);
+      try { localStorage.removeItem(COMPLETED_KEY); } catch (e) {}
+    }
+  }, [authLoading, user, completedSession]);
 
   const totalSec = (s) => (s.isBreak ? BREAK_DEFAULT : s.focusMin) * 60;
 
@@ -66,6 +87,10 @@ export const TimerProvider = ({ children }) => {
       if (s.isRunning || s.isPaused) sessionStorage.setItem(STORE_KEY, JSON.stringify(s));
       else sessionStorage.removeItem(STORE_KEY);
     } catch (e) {}
+  }, []);
+
+  const persistCompleted = useCallback((session) => {
+    try { localStorage.setItem(COMPLETED_KEY, JSON.stringify(session)); } catch (e) {}
   }, []);
 
   // Main ticker — runs only while active (running and not paused).
@@ -83,11 +108,20 @@ export const TimerProvider = ({ children }) => {
         clearInterval(intervalRef.current);
         if (state.isBreak) {
           // Break finished → back to idle focus state (keep selected preset).
-          setState((prev) => ({ ...DEFAULT_STATE, focusMin: prev.focusMin || state.focusMin }));
-          setCompletedDuration(null);
+          const nextFocusMin = state.focusMin || DEFAULT_STATE.focusMin;
+          setState((prev) => ({ ...DEFAULT_STATE, focusMin: prev.focusMin || nextFocusMin }));
+          setDisplay(nextFocusMin * 60);
         } else {
           // Focus finished → auto-start break; surface the completed session.
-          setCompletedDuration(state.focusMin);
+          const completed = {
+            clientId: newClientId(),
+            userId: user?.id,
+            duration: state.focusMin,
+            taskLabel: state.taskLabel,
+            completedAt: new Date().toISOString(),
+          };
+          setCompletedSession(completed);
+          persistCompleted(completed);
           const breakState = {
             ...DEFAULT_STATE,
             isRunning: true,
@@ -107,14 +141,13 @@ export const TimerProvider = ({ children }) => {
     compute();
     intervalRef.current = setInterval(compute, 250);
     return () => clearInterval(intervalRef.current);
-  }, [state.isRunning, state.isPaused, state.startTs, state.isBreak]);
+  }, [state.isRunning, state.isPaused, state.startTs, state.isBreak, user?.id, persistCompleted]);
 
   const start = useCallback((min = state.focusMin) => {
     const s = { ...state, isRunning: true, isPaused: false, isBreak: false, focusMin: min, startTs: Date.now() };
     const total = min * 60;
     s.remainingBase = total;
     setState(s);
-    setCompletedDuration(null);
     setDisplay(total);
     persist(s);
   }, [state, persist]);
@@ -147,7 +180,6 @@ export const TimerProvider = ({ children }) => {
 
   const stop = useCallback(() => {
     setState(DEFAULT_STATE);
-    setCompletedDuration(null);
     persist(DEFAULT_STATE);
   }, [persist]);
 
@@ -165,7 +197,22 @@ export const TimerProvider = ({ children }) => {
     setState((s) => ({ ...s, taskLabel: label }));
   }, []);
 
-  const ackSession = useCallback(() => setCompletedDuration(null), []);
+  const ackSession = useCallback((clientId) => {
+    setCompletedSession((pending) => {
+      if (clientId && pending?.clientId !== clientId) return pending;
+      try { localStorage.removeItem(COMPLETED_KEY); } catch (e) {}
+      return null;
+    });
+  }, []);
+
+  const updateCompletedSession = useCallback((changes) => {
+    setCompletedSession((pending) => {
+      if (!pending) return pending;
+      const updated = { ...pending, ...changes };
+      persistCompleted(updated);
+      return updated;
+    });
+  }, [persistCompleted]);
 
   const value = {
     isRunning: state.isRunning,
@@ -174,7 +221,8 @@ export const TimerProvider = ({ children }) => {
     focusMin: state.focusMin,
     taskLabel: state.taskLabel,
     display,
-    completedDuration,
+    completedDuration: completedSession?.duration ?? null,
+    completedSession,
     presets: FOCUS_PRESETS,
     start,
     startBreak,
@@ -184,6 +232,7 @@ export const TimerProvider = ({ children }) => {
     setPreset,
     setTaskLabel,
     ackSession,
+    updateCompletedSession,
   };
 
   return <TimerContext.Provider value={value}>{children}</TimerContext.Provider>;

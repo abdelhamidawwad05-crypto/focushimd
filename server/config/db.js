@@ -25,9 +25,10 @@ if (process.env.DATABASE_URL) {
      CREATE TABLE IF NOT EXISTS users (
        id SERIAL PRIMARY KEY,
        email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      verified BOOLEAN NOT NULL DEFAULT FALSE
+       password_hash TEXT NOT NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       verified BOOLEAN NOT NULL DEFAULT FALSE,
+       session_version INTEGER NOT NULL DEFAULT 0
      );
      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
@@ -51,12 +52,16 @@ if (process.env.DATABASE_URL) {
          ALTER TABLE sessions RENAME COLUMN "completedAt" TO completedat;
        END IF;
      END $$;
-     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
-     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-     CREATE INDEX IF NOT EXISTS idx_completedat ON sessions(completedat DESC);
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_completedat ON sessions(completedat DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_user_idempotency
+        ON sessions(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
     -- Email verification codes: hashed, expiring, single-use
-    CREATE TABLE IF NOT EXISTS verification_codes (
+     CREATE TABLE IF NOT EXISTS verification_codes (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       code_hash TEXT NOT NULL,
@@ -65,7 +70,19 @@ if (process.env.DATABASE_URL) {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
+     CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
+     -- Password reset tokens: only a SHA-256 hash is stored; each token is
+     -- single-use and expires after a short window.
+     CREATE TABLE IF NOT EXISTS password_reset_tokens (
+       id SERIAL PRIMARY KEY,
+       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       token_hash TEXT NOT NULL,
+       expires_at TIMESTAMPTZ NOT NULL,
+       used BOOLEAN NOT NULL DEFAULT FALSE,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     );
+     CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON password_reset_tokens(token_hash);
+     CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON password_reset_tokens(user_id);
   `).then(() => console.log('✅ Postgres schema ready')).catch(e => {
     console.error('PG init error', e.message);
     throw e;
@@ -99,7 +116,8 @@ if (process.env.DATABASE_URL) {
        email TEXT NOT NULL UNIQUE,
        password_hash TEXT NOT NULL,
        created_at TEXT NOT NULL,
-       verified INTEGER NOT NULL DEFAULT 0
+        verified INTEGER NOT NULL DEFAULT 0,
+        session_version INTEGER NOT NULL DEFAULT 0
      );
      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
@@ -109,7 +127,8 @@ if (process.env.DATABASE_URL) {
        duration INTEGER NOT NULL,
        mood TEXT NOT NULL CHECK (mood IN ('good','okay','rough')),
        note TEXT DEFAULT '',
-       completedat TEXT NOT NULL
+        completedat TEXT NOT NULL,
+        idempotency_key TEXT
     );
      CREATE INDEX IF NOT EXISTS idx_completedat ON sessions(completedat DESC);
 
@@ -122,7 +141,17 @@ if (process.env.DATABASE_URL) {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
+     CREATE INDEX IF NOT EXISTS idx_vcodes_user ON verification_codes(user_id);
+     CREATE TABLE IF NOT EXISTS password_reset_tokens (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       token_hash TEXT NOT NULL,
+       expires_at TEXT NOT NULL,
+       used INTEGER NOT NULL DEFAULT 0,
+       created_at TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON password_reset_tokens(token_hash);
+     CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON password_reset_tokens(user_id);
      `);
   // Existing SQLite databases predate per-user ownership. Keep those legacy
   // rows with user_id NULL so they cannot be shown to anybody, and require
@@ -131,6 +160,13 @@ if (process.env.DATABASE_URL) {
   if (!sessionColumns.some(c => c.name === 'user_id')) {
     sqlite.exec('ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
   }
+  if (!sessionColumns.some(c => c.name === 'idempotency_key')) {
+    sqlite.exec('ALTER TABLE sessions ADD COLUMN idempotency_key TEXT');
+  }
+  const userColumns = sqlite.prepare('PRAGMA table_info(users)').all();
+  if (!userColumns.some(c => c.name === 'session_version')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0');
+  }
   // Normalize the old local spelling to the same lowercase DB contract used
   // by PostgreSQL. Existing timestamp values are preserved by RENAME COLUMN.
   const refreshedSessionColumns = sqlite.prepare('PRAGMA table_info(sessions)').all();
@@ -138,6 +174,7 @@ if (process.env.DATABASE_URL) {
     sqlite.exec('ALTER TABLE sessions RENAME COLUMN completedAt TO completedat');
   }
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
+  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_user_idempotency ON sessions(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL');
   db = sqlite;
   db.type = 'sqlite';
   db.ready = Promise.resolve();

@@ -11,7 +11,7 @@ const isPg = db.type === 'pg';
 // Normalize that response shape so all callers use the API's camelCase field.
 function sessionOutput(row) {
   if (!row || row.completedat === undefined) return row;
-  const { completedat, ...rest } = row;
+  const { completedat, idempotency_key, ...rest } = row;
   return { ...rest, completedAt: completedat };
 }
 
@@ -36,23 +36,33 @@ router.post('/', requireCsrf, async (req, res) => {
   try {
     await ready();
     const { duration, mood, note } = req.body;
+    const idempotencyKey = (req.get('Idempotency-Key') || '').trim();
     if (!duration || !mood || !['good','okay','rough'].includes(mood)) {
       return res.status(400).json({ message: 'duration and valid mood required' });
     }
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
+      return res.status(400).json({ message: 'Idempotency-Key header required' });
+    }
     const completedAt = new Date().toISOString();
     let row;
+    let created = true;
     if (isPg) {
       const r = await db.pool.query(
-        'INSERT INTO sessions (user_id, duration, mood, note, completedat) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [req.user.id, duration, mood, note || '', completedAt]
+        'INSERT INTO sessions (user_id, duration, mood, note, completedat, idempotency_key) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING *',
+        [req.user.id, duration, mood, note || '', completedAt, idempotencyKey]
       );
-      row = sessionOutput(r.rows[0]);
+      if (r.rows[0]) row = sessionOutput(r.rows[0]);
+      else {
+        created = false;
+        const existing = await db.pool.query('SELECT * FROM sessions WHERE user_id = $1 AND idempotency_key = $2', [req.user.id, idempotencyKey]);
+        row = sessionOutput(existing.rows[0]);
+      }
     } else {
-      const stmt = db.prepare('INSERT INTO sessions (user_id, duration, mood, note, completedat) VALUES (?, ?, ?, ?, ?)');
-      const result = stmt.run(req.user.id, duration, mood, note || '', completedAt);
-      row = sessionOutput(db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid));
+      const result = db.prepare('INSERT OR IGNORE INTO sessions (user_id, duration, mood, note, completedat, idempotency_key) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, duration, mood, note || '', completedAt, idempotencyKey);
+      row = sessionOutput(db.prepare('SELECT * FROM sessions WHERE user_id = ? AND idempotency_key = ?').get(req.user.id, idempotencyKey));
+      created = Number(result.changes || 0) === 1;
     }
-    res.status(201).json(row);
+    res.status(created ? 201 : 200).json(row);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

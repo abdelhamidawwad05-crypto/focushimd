@@ -5,7 +5,7 @@
 // (double-submit CSRF). No JWT is ever stored in localStorage.
 // ---------------------------------------------------------------------------
 
-const API = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const API = (import.meta.env?.VITE_API_URL || '').trim().replace(/\/$/, '');
 const apiUrl = (path) => `${API}${path}`;
 
 function networkError(e) {
@@ -62,6 +62,8 @@ export const authApi = {
   login: (email, password, rememberMe) => post('/api/auth/login', { email, password, rememberMe: !!rememberMe }),
   verify: (email, code) => post('/api/auth/verify', { email, code }),
   resend: (email) => post('/api/auth/resend', { email }),
+  forgotPassword: (email) => post('/api/auth/forgot-password', { email }),
+  resetPassword: (token, password, confirmPassword) => post('/api/auth/reset-password', { token, password, confirmPassword }),
   logout: () => post('/api/auth/logout', {}),
   me: () => get('/api/auth/me'),
 };

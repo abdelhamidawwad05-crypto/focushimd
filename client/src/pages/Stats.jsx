@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 import { getStats, getWeekly, getSessions } from '../utils/storage';
+import { useAuth } from '../context/AuthContext';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Tooltip, Filler);
 
@@ -10,16 +11,18 @@ const Stats = () => {
   const [stats, setStats] = useState({ streak: 0, totalHours: 0, totalSessions: 0 });
   const [prevWeekHours, setPrevWeekHours] = useState(0);
   const [repos, setRepos] = useState([]);
+  const { user } = useAuth();
 
   useEffect(() => {
     const load = async () => {
-      const [w, s] = await Promise.all([getWeekly(), getStats()]);
+      if (!user?.id) return;
+      const [w, s] = await Promise.all([getWeekly(user.id), getStats(user.id)]);
       setWeeklyData(w);
       setStats(s);
 
       // prev week comparison
       try {
-        const all = await getSessions('all');
+        const all = await getSessions('all', user.id);
         const now = new Date();
         const startPrev = new Date(now); startPrev.setDate(now.getDate() - 14);
         const endPrev = new Date(now); endPrev.setDate(now.getDate() - 7);
@@ -35,7 +38,7 @@ const Stats = () => {
         .then(r => r.json()).then(d => { if (Array.isArray(d)) setRepos(d); }).catch(()=>{});
     };
     load();
-  }, []);
+  }, [user?.id]);
 
   if (!weeklyData) return <div className="loading">Loading...</div>;
 

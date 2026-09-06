@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import playClick from '../utils/sounds';
+import { authApi } from '../api/auth';
 
 // ---------------------------------------------------------------------------
 // Reset password page. Uses the exact same background stack as every other
@@ -25,10 +26,14 @@ const ForgotPassword = () => {
     }
     setLoading(true);
     playClick();
-    // TODO: wire to POST /api/auth/forgot-password once email sending exists
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setSuccess(true);
+    try {
+      await authApi.forgotPassword(email.trim().toLowerCase());
+      setSuccess(true);
+    } catch (err) {
+      setError(err.message || 'Could not send reset link, please try again');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const db = require('../config/db');
 
 // ---------------------------------------------------------------------------
 // Auth middleware: reads the session JWT from the httpOnly cookie (never from
@@ -28,7 +29,7 @@ function cookieOpts(rememberMe) {
 
 function signSession(user, rememberMe) {
   return jwt.sign(
-    { id: user.id, email: user.email },
+    { id: user.id, email: user.email, sessionVersion: Number(user.session_version ?? user.sessionVersion ?? 0) },
     jwtSecret(),
     // Token lifetime always matches the cookie lifetime so neither outlives
     // the other (an outlived token would either strand or over-extend login).
@@ -45,11 +46,24 @@ function jwtSecret() {
   return secret || 'dev-only-change-me';
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.cookies && req.cookies.fh_session;
   if (!token) return res.status(401).json({ message: 'Not signed in' });
   try {
     req.user = jwt.verify(token, jwtSecret());
+    let currentVersion = 0;
+    if (db.type === 'pg') {
+      const result = await db.pool.query('SELECT session_version FROM users WHERE id = $1', [req.user.id]);
+      if (!result.rows[0]) return res.status(401).json({ message: 'Not signed in' });
+      currentVersion = Number(result.rows[0].session_version || 0);
+    } else {
+      const row = db.prepare('SELECT session_version FROM users WHERE id = ?').get(req.user.id);
+      if (!row) return res.status(401).json({ message: 'Not signed in' });
+      currentVersion = Number(row.session_version || 0);
+    }
+    if (Number(req.user.sessionVersion || 0) !== currentVersion) {
+      return res.status(401).json({ message: 'Session expired, please sign in again' });
+    }
     next();
   } catch (e) {
     return res.status(401).json({ message: 'Session expired, please sign in again' });

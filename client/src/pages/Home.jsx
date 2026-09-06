@@ -2,40 +2,66 @@ import { useState, useEffect } from 'react';
 import Timer from '../components/Timer';
 import MoodPopup from '../components/MoodPopup';
 import playClick, { playAlarm } from '../utils/sounds';
-import { saveSession, getTodayCount, getStats } from '../utils/storage';
+import { saveSession, getTodayCount, getStats, flushSessionQueue } from '../utils/storage';
 import { useTimer } from '../context/TimerContext';
+import { useAuth } from '../context/AuthContext';
 
 const Home = () => {
   const [todayCount, setTodayCount] = useState(0);
   const [streak, setStreak] = useState(0);
-  const [completedDuration, setCompletedDuration] = useState(null);
   const [showMoodPopup, setShowMoodPopup] = useState(false);
-  const { completedDuration: timerDone, taskLabel, ackSession } = useTimer();
+  const { user } = useAuth();
+  const { completedSession: timerDone, taskLabel, ackSession, updateCompletedSession } = useTimer();
 
   const refresh = async () => {
-    const [count, stats] = await Promise.all([getTodayCount(), getStats()]);
+    const [count, stats] = await Promise.all([getTodayCount(user?.id), getStats(user?.id)]);
     setTodayCount(count);
     setStreak(stats.streak);
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { if (user?.id) refresh(); }, [user?.id]);
 
   // When the timer naturally finishes, surface the completed session + end sound.
   useEffect(() => {
     if (timerDone != null) {
       playAlarm();
-      setCompletedDuration(timerDone);
       setShowMoodPopup(true);
     }
-  }, [timerDone]);
+  }, [timerDone?.clientId]);
+
+  // Retry durable local sessions on reconnect. The queue removes an item only
+  // after the server confirms it, and emits an event for the pending popup.
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const onSynced = (event) => {
+      if (String(event.detail?.userId) !== String(user.id)) return;
+      if (event.detail?.clientId === timerDone?.clientId) {
+        ackSession(timerDone.clientId);
+        setShowMoodPopup(false);
+      }
+      refresh();
+    };
+    const retry = () => flushSessionQueue(user.id).then(refresh);
+    window.addEventListener('fh-session-synced', onSynced);
+    window.addEventListener('online', retry);
+    retry();
+    return () => {
+      window.removeEventListener('fh-session-synced', onSynced);
+      window.removeEventListener('online', retry);
+    };
+  }, [user?.id, timerDone?.clientId, ackSession]);
 
   const handleMoodSave = async ({ duration, mood, note }) => {
     // The optional task label is saved together with the session.
     const combinedNote = [taskLabel, note].filter(Boolean).join(' — ');
-    await saveSession({ duration, mood, note: combinedNote });
+    const pending = timerDone;
+    if (pending) updateCompletedSession({ mood, note: combinedNote });
+    const result = await saveSession({
+      duration, mood, note: combinedNote, userId: user.id,
+      idempotencyKey: pending?.clientId, completedAt: pending?.completedAt,
+    });
     setShowMoodPopup(false);
-    setCompletedDuration(null);
-    ackSession();
+    if (result.synced) ackSession(result.clientId);
     refresh();
   };
 
@@ -67,9 +93,11 @@ const Home = () => {
 
       {showMoodPopup && (
         <MoodPopup
-          duration={completedDuration}
+          duration={timerDone.duration}
           onSave={handleMoodSave}
-          onClose={() => { playClick(); setShowMoodPopup(false); setCompletedDuration(null); ackSession(); }}
+          initialMood={timerDone.mood}
+          initialNote={timerDone.note}
+          onClose={() => { playClick(); setShowMoodPopup(false); }}
         />
       )}
     </div>

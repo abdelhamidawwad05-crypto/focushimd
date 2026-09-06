@@ -58,6 +58,25 @@ function verificationHtml(code) {
 </html>`;
 }
 
+function passwordResetHtml(resetUrl) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;padding:32px 16px;">
+    <div style="background:#ffffff;border-radius:12px;padding:32px;border:1px solid #e4e4e7;">
+      <div style="font-size:18px;font-weight:700;color:#18181b;margin-bottom:4px;">Focus Himd</div>
+      <div style="font-size:13px;color:#71717a;margin-bottom:24px;">Reclaim your attention and peak flow.</div>
+      <p style="font-size:15px;color:#3f3f46;line-height:1.5;">We received a request to reset your password.</p>
+      <p style="text-align:center;margin:26px 0 24px;"><a href="${resetUrl}" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;border-radius:8px;padding:14px 24px;font-size:15px;font-weight:700;">Reset your password</a></p>
+      <p style="font-size:14px;color:#3f3f46;line-height:1.6;margin:0 0 6px;">This link expires in <strong>45 minutes</strong> and can only be used once.</p>
+      <p style="font-size:13px;color:#71717a;line-height:1.5;margin:0 0 20px;">If you did not request this, you can safely ignore this email.</p>
+      <div style="border-top:1px solid #e4e4e7;padding-top:16px;font-size:12px;color:#a1a1aa;">&copy; Focus Himd &middot; This is an automated email, please do not reply.</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 // Sends the code email. Resolves with Brevo's messageId on success (logged so
 // every send is provable in the server logs). Throws on failure so the caller
 // can surface a real error to the frontend (never a fake "check your email").
@@ -98,6 +117,31 @@ async function sendVerificationEmail({ to, code }) {
   }
 }
 
+async function sendPasswordResetEmail({ to, token }) {
+  const apiInstance = api();
+  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+  const appUrl = (process.env.APP_URL || 'https://focushimd.site').trim().replace(/\/$/, '');
+  const resetUrl = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  sendSmtpEmail.sender = { name: SENDER_NAME, email: SENDER_EMAIL };
+  sendSmtpEmail.to = [{ email: to }];
+  sendSmtpEmail.subject = 'Reset your Focus Himd password';
+  sendSmtpEmail.htmlContent = passwordResetHtml(resetUrl);
+  try {
+    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    const messageId = (result && result.messageId) || '';
+    console.log(`[email] password reset email accepted by Brevo for ${to}${messageId ? ` (messageId=${messageId})` : ''}`);
+    if (messageId) await confirmNoDeliveryError(messageId, to);
+    return messageId;
+  } catch (err) {
+    let reason = err && err.message ? err.message : 'unknown error';
+    const status = err && err.status;
+    const body = err && err.response && err.response.body;
+    const bodyMsg = body && (body.message || (body.code ? `code=${body.code}` : ''));
+    if (bodyMsg) reason = `${reason} (${bodyMsg})`;
+    throw new Error(`Brevo send failed${status ? ` [HTTP ${status}]` : ''}: ${reason}`);
+  }
+}
+
 // After Brevo accepts a send, poll its event log for this messageId and fail
 // fast if a hard delivery failure (error/blocked) is recorded. Hard failures
 // (e.g. invalid sender) are indexed within the same second, so one immediate
@@ -134,4 +178,4 @@ async function confirmNoDeliveryError(messageId, to) {
   console.log(`[email] delivery confirmation timed out for ${to} (messageId=${messageId}); send was accepted`);
 }
 
-module.exports = { sendVerificationEmail };
+module.exports = { sendVerificationEmail, sendPasswordResetEmail };

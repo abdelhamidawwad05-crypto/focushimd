@@ -7,6 +7,7 @@ const { normalizeEmail, validatePassword, validateCode } = require('../utils/val
 const { requireAuth, signSession, cookieOpts } = require('../middleware/auth');
 const { issueCsrf, requireCsrf } = require('../middleware/csrf');
 const { sendVerificationEmail } = require('../email/send');
+const { sendPasswordResetEmail } = require('../email/send');
 
 const router = express.Router();
 const isPg = () => db.type === 'pg';
@@ -37,6 +38,22 @@ const resendLimiter = rateLimit({
   message: { message: 'Too many resend requests, try again later' },
   standardHeaders: true, legacyHeaders: false
 });
+const forgotPasswordIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 10,
+  message: { message: 'If an account exists, a reset link was sent' },
+  standardHeaders: true, legacyHeaders: false
+});
+const forgotPasswordEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 3,
+  keyGenerator: (req) => normalizeEmail(req.body && req.body.email) || 'invalid-email',
+  message: { message: 'If an account exists, a reset link was sent' },
+  standardHeaders: true, legacyHeaders: false
+});
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10,
+  message: { message: 'Too many password reset attempts, try again later' },
+  standardHeaders: true, legacyHeaders: false
+});
 
 // ---- tiny DB helpers (both dialects; ALL values parameterized: $1 / ?) ----
 async function findUserByEmail(email) {
@@ -53,6 +70,87 @@ async function findUserById(id) {
     return r.rows[0] || null;
   }
   return db.prepare('SELECT * FROM users WHERE id = ?').get(id) || null;
+}
+
+function tokenDigest(token) {
+  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+async function createPasswordResetToken(userId, email) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = tokenDigest(token);
+  const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+  const created = nowIso();
+  if (isPg()) {
+    await db.pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE', [userId]);
+    await db.pool.query(
+      'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, used, created_at) VALUES ($1,$2,$3,FALSE,$4)',
+      [userId, tokenHash, expiresAt, created]
+    );
+  } else {
+    db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0').run(userId);
+    db.prepare('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)').run(userId, tokenHash, expiresAt, created);
+  }
+  try {
+    await sendPasswordResetEmail({ to: email, token });
+  } catch (err) {
+    if (isPg()) {
+      await db.pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = $1', [tokenHash]);
+    } else {
+      db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token_hash = ?').run(tokenHash);
+    }
+    throw err;
+  }
+}
+
+function sameDigest(a, b) {
+  const left = Buffer.from(a, 'hex');
+  const right = Buffer.from(b, 'hex');
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+async function resetPasswordAtomically(token, passwordHash) {
+  const digest = tokenDigest(token);
+  if (isPg()) {
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        'SELECT * FROM password_reset_tokens WHERE token_hash = $1 AND used = FALSE FOR UPDATE',
+        [digest]
+      );
+      const row = result.rows[0];
+      if (!row || new Date(row.expires_at).getTime() < Date.now() || !sameDigest(digest, row.token_hash)) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      await client.query('UPDATE password_reset_tokens SET used = TRUE WHERE id = $1', [row.id]);
+      await client.query('UPDATE users SET password_hash = $1, session_version = session_version + 1 WHERE id = $2', [passwordHash, row.user_id]);
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const row = db.prepare('SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used = 0 LIMIT 1').get(digest) || null;
+    if (!row || new Date(row.expires_at).getTime() < Date.now() || !sameDigest(digest, row.token_hash)) {
+      db.exec('ROLLBACK');
+      return false;
+    }
+    db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(row.id);
+    db.prepare('UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?').run(passwordHash, row.user_id);
+    db.exec('COMMIT');
+    return true;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (_) {}
+    throw err;
+  }
 }
 
 // Remove an account and its verification codes. Used to roll back a signup
@@ -320,7 +418,7 @@ router.post('/login', loginLimiter, requireCsrf, async (req, res) => {
     // counts as checked; absent/false keeps current behavior. Nothing secret
     // is stored client-side either way.
     const rememberMe = !!(req.body && req.body.rememberMe);
-    const token = signSession({ id: user.id, email: user.email }, rememberMe);
+    const token = signSession({ id: user.id, email: user.email, session_version: user.session_version }, rememberMe);
     res.cookie('fh_session', token, cookieOpts(rememberMe));
     return res.json({ user: publicUser(user) });
   } catch (err) {
@@ -353,7 +451,7 @@ router.post('/verify', verifyLimiter, requireCsrf, async (req, res) => {
     }
 
     const fresh = await findUserById(user.id);
-    const token = signSession({ id: fresh.id, email: fresh.email });
+    const token = signSession({ id: fresh.id, email: fresh.email, session_version: fresh.session_version });
     res.cookie('fh_session', token, cookieOpts());
     return res.json({ user: publicUser(fresh) });
   } catch (err) {
@@ -390,6 +488,55 @@ router.post('/resend', resendLimiter, requireCsrf, async (req, res) => {
       return res.status(502).json({ message: 'We could not send the verification email. Please try again in a moment.' });
     }
     return res.status(500).json({ message: 'Server error, please try again' });
+  }
+});
+
+// POST /api/auth/forgot-password — always returns the same response so an
+// attacker cannot discover which email addresses have accounts.
+router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordEmailLimiter, requireCsrf, async (req, res) => {
+  const generic = { message: 'If an account exists, a reset link was sent' };
+  try {
+    if (db.ready) await db.ready;
+    const email = normalizeEmail(req.body && req.body.email);
+    if (!email) return res.status(400).json(generic);
+    const user = await findUserByEmail(email);
+    if (user) {
+      try {
+        await createPasswordResetToken(user.id, user.email);
+      } catch (err) {
+        // Do not turn delivery errors into account-existence signals.
+        console.error('[auth] password reset email error', err.message);
+      }
+    }
+    return res.json(generic);
+  } catch (err) {
+    console.error('[auth] forgot-password error', err.message);
+    return res.json(generic);
+  }
+});
+
+// POST /api/auth/reset-password — consumes a reset token exactly once and
+// advances the user's session version so every previously issued JWT expires.
+router.post('/reset-password', resetPasswordLimiter, requireCsrf, async (req, res) => {
+  try {
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    const password = req.body?.password;
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+      return res.status(400).json({ message: 'This reset link is invalid or expired' });
+    }
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ message: pwErr });
+    if (req.body?.confirmPassword !== password) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+    if (db.ready) await db.ready;
+    const passwordHash = await bcrypt.hash(password, 12);
+    const changed = await resetPasswordAtomically(token, passwordHash);
+    if (!changed) return res.status(400).json({ message: 'This reset link is invalid or expired' });
+    return res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    console.error('[auth] reset-password error', err.message);
+    return res.status(500).json({ message: 'Could not reset password, please try again' });
   }
 });
 

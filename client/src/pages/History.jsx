@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import playClick from '../utils/sounds';
 import { getSessions } from '../utils/storage';
+import { useAuth } from '../context/AuthContext';
 
 const MOOD_META = {
   good: { label: 'Good', color: 'var(--color-good)' },
@@ -11,14 +12,16 @@ const MOOD_META = {
 const History = () => {
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('all');
+  const { user } = useAuth();
 
   useEffect(() => {
-    getSessions(filter).then((data) => {
+    if (!user?.id) return;
+    getSessions(filter, user.id).then((data) => {
       // Guarantee newest-first regardless of source (API or local fallback).
       const sorted = [...data].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
       setSessions(sorted);
     });
-  }, [filter]);
+  }, [filter, user?.id]);
 
   const formatDate = (d) =>
     new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });

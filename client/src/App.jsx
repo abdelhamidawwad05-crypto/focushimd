@@ -13,6 +13,7 @@ import Register from './pages/Register';
 import Signup from './pages/Signup';
 import Verify from './pages/Verify';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import './index.css';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
                 <Route path="/signup" element={<GuestRoute><Signup /></GuestRoute>} />
                 <Route path="/verify" element={<GuestRoute><Verify /></GuestRoute>} />
                 <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
+                <Route path="/reset-password" element={<ResetPassword />} />
               </Routes>
             </main>
           </div>
