@@ -515,9 +515,10 @@ router.post('/forgot-password', forgotPasswordIpLimiter, forgotPasswordEmailLimi
   }
 });
 
-// POST /api/auth/reset-password — consumes a reset token exactly once and
-// advances the user's session version so every previously issued JWT expires.
-router.post('/reset-password', resetPasswordLimiter, requireCsrf, async (req, res) => {
+// POST /api/auth/reset-password — the single-use high-entropy reset token is
+// the CSRF protection for this unauthenticated flow, so this endpoint does
+// not depend on a cross-site CSRF cookie surviving browser privacy rules.
+router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
   try {
     const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
     const password = req.body?.password;
