@@ -82,12 +82,14 @@ async function createPasswordResetToken(userId, email) {
   const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
   const created = nowIso();
   if (isPg()) {
+    await db.pool.query('DELETE FROM password_reset_tokens WHERE used = TRUE OR expires_at < NOW()');
     await db.pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE', [userId]);
     await db.pool.query(
       'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, used, created_at) VALUES ($1,$2,$3,FALSE,$4)',
       [userId, tokenHash, expiresAt, created]
     );
   } else {
+    db.prepare('DELETE FROM password_reset_tokens WHERE used = 1 OR expires_at < ?').run(created);
     db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0').run(userId);
     db.prepare('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)').run(userId, tokenHash, expiresAt, created);
   }

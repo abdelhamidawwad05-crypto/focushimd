@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import playClick from '../utils/sounds';
 import { authApi } from '../api/auth';
@@ -8,12 +8,19 @@ const ResetPassword = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const token = params.get('token') || '';
+  const initialToken = params.get('token') || '';
+  const [token] = useState(initialToken);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState(token ? '' : 'This reset link is invalid or expired');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Do not leave the one-time secret in browser history or the address bar
+  // after capturing it for the form submission.
+  useEffect(() => {
+    if (initialToken) navigate('/reset-password', { replace: true });
+  }, [initialToken, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
